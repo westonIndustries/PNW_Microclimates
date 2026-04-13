@@ -24,8 +24,21 @@ A Python processing pipeline that generates high-resolution microclimate maps fo
 # Install dependencies
 pip install -r requirements.txt
 
-# Run the pipeline for a single region
-python -m src.pipeline --region region_1
+# Monthly microclimate (PRISM normals → annual effective_hdd)
+python -m src.pipeline --region region_1 --mode normals
+
+# Daily microclimate (HRRR → daily effective_hdd + safety cube)
+python -m src.pipeline --region region_1 --mode daily --month 2024-01
+
+# Hourly microclimate (HRRR → per-hour safety cubes)
+python -m src.pipeline --region region_1 --mode hourly --start-date 2024-01-15 --end-date 2024-01-16
+
+# All modes in sequence (normals → daily → hourly, reusing terrain corrections)
+python -m src.pipeline --region region_1 --mode both --month 2024-01
+
+# Real-time daemon (optional — polls for new HRRR cycles)
+python -m src.realtime.daemon --region region_1 --build-cache  # first time
+python -m src.realtime.daemon --region region_1 --foreground    # start polling
 
 # Run all regions sequentially
 python -m src.pipeline --all-regions
@@ -90,9 +103,12 @@ Microclimates/
 
 ## How It Works
 
-The pipeline supports two operating modes:
+The pipeline supports four operating modes, each building on the shared foundation of static terrain and surface physics layers:
 
-### Normals Mode (default)
+### Shared Foundation
+All modes start from the same static data: LiDAR DEM (terrain, slope, TPI), NLCD (imperviousness, roughness, displacement height), MesoWest/NREL wind, ODOT/WSDOT traffic heat, and Landsat LST. These are computed once and reused.
+
+### Monthly Microclimate Generator (`--mode normals`, default)
 
 1. **Boundary & region setup** — ZIP codes in OR/WA are grouped into processing regions. Each ZIP code is assigned to its nearest NOAA weather station.
 2. **Terrain analysis** — LiDAR DEM drives aspect, slope, TPI, and windward/leeward classification.
@@ -103,13 +119,22 @@ The pipeline supports two operating modes:
 7. **Combine** — All corrections merge into a single `effective_hdd` per ZIP code.
 8. **QA** — Range checks, directional sanity, and optional billing comparison flag implausible values.
 
-### Daily Mode (`--mode daily`)
+### Daily Microclimate Generator (`--mode daily`)
 
-1. **HRRR ingestion** — Download and cache HRRR 3 km GRIB2 analysis files (f00) from AWS S3 (`s3://noaa-hrrr-bdp-pds/`) or Google Cloud for a specified date range. Each file provides hourly temperature, wind, and pressure-level atmospheric fields across CONUS.
-2. **Bias correction** — HRRR daily mean temperature is bias-corrected against PRISM climatology using `hrrr_adjusted = hrrr_raw + (prism_normal − hrrr_climatology)`, so that HRRR inherits PRISM's terrain-aware station calibration.
-3. **Terrain corrections** — The same TPI, UHI, wind stagnation, and traffic heat corrections from normals mode are applied on top of the bias-corrected HRRR fields.
-4. **Multi-altitude wind profiles** — Wind speed and direction are extracted at six GA flight altitudes (surface, 3,000 ft, 6,000 ft, 9,000 ft, 12,000 ft, 18,000 ft AGL) from HRRR pressure-level data, with log-pressure interpolation for intermediate altitudes.
-5. **Daily output** — Daily `effective_hdd` + multi-altitude wind profiles per ZIP code, written to a time-series Parquet or CSV file.
+1. **HRRR ingestion** — Download and cache HRRR 3 km GRIB2 analysis files from AWS S3 or Google Cloud for a specified date range.
+2. **Bias correction** — HRRR daily mean temperature is bias-corrected against PRISM climatology: `hrrr_adjusted = hrrr_raw + (prism_normal − hrrr_climatology)`.
+3. **Terrain corrections** — Same TPI, UHI, wind stagnation, and traffic heat corrections from the monthly mode.
+4. **Multi-altitude profiles** — Temperature and wind at 8 altitude levels (surface through 18,000 ft AGL) from HRRR pressure-level data.
+5. **Surface physics** — NLCD-derived roughness, displacement height, and albedo modify the boundary layer (0–1,000 ft): forest canopy displacement, UHI decay, water thermal subsidence, TKE turbulence.
+6. **Aviation Safety Cube** — 3D output (ZIP × date × 8 altitudes) with temp, wind, TKE, wind shear, HDD, density altitude, and turbulence flags.
+
+### Hourly Microclimate Generator (`--mode hourly`)
+
+Same as daily mode but skips the 24-hour averaging — produces one safety cube per HRRR analysis hour. Each row is ZIP × hour × altitude. Useful for capturing diurnal cycles, morning inversions, and afternoon convective turbulence that daily averaging smooths out.
+
+### Real-Time Microclimate Generator (`--mode realtime`, optional)
+
+A persistent daemon that polls for new hourly HRRR cycles via the `herbie` library, processes each against a pre-built static cache of terrain and surface features, and writes an updated safety cube within minutes of each HRRR release. Runs the HRRR poller in a separate process to keep network I/O from blocking the compute path.
 
 ---
 

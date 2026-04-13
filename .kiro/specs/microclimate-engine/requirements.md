@@ -321,3 +321,99 @@ The **Regional Microclimate Modeling Engine** is a Python processing pipeline th
 8. IF `--mode daily` is specified without a date range (`--start-date`/`--end-date` or `--month`), THEN THE Pipeline SHALL raise a `ValueError` stating that daily mode requires a date range or month.
 9. THE Pipeline SHALL support running both modes sequentially in a single invocation via `--mode both`, which first runs normals mode to produce `terrain_attributes.csv`, then runs daily mode for the specified date range (or month), reusing the terrain corrections already computed in the normals pass.
 10. THE Pipeline SHALL document the supported date ranges in the CLI help text and README: HRRR daily mode supports dates from 2014-07-30 to present; PRISM normals mode uses the 1991–2020 climate normal period and does not require a date range.
+
+---
+
+### Requirement 19: Altitude-Level Microclimate Profiles
+
+**User Story**: As a GA pilot or aviation weather analyst, I want the pipeline to produce bias-corrected temperature and HDD at each altitude level where wind data is available (surface, 3,000, 6,000, 9,000, 12,000, and 18,000 ft AGL), so that I can assess the full atmospheric profile — not just wind — at my planned cruise altitude for each ZIP code.
+
+#### Acceptance Criteria
+
+1. THE Pipeline SHALL extract HRRR temperature at each of the six altitude levels (surface, 3,000, 6,000, 9,000, 12,000, 18,000 ft AGL) by interpolating HRRR pressure-level temperature fields using the same log-pressure interpolation method used for wind in Requirement 17.
+2. THE Pipeline SHALL bias-correct the altitude-level temperatures against PRISM climatology using the same additive formula as the surface bias correction (Requirement 18 AC2), applied independently at each altitude level: `temp_alt_adjusted = temp_alt_raw + bias_correction_f`, where `bias_correction_f` is the surface-level PRISM bias correction for that ZIP code (altitude-specific PRISM data does not exist, so the surface bias is propagated upward).
+3. THE Pipeline SHALL compute altitude-level HDD for each altitude as: `hdd_{alt} = max(0, 65 − temp_{alt}_adjusted_f)` per ZIP code per date. No surface-specific terrain corrections (UHI, traffic heat, imperviousness) are applied at altitude — only the bias-corrected HRRR temperature drives the HDD computation above the surface.
+4. THE Pipeline SHALL write the altitude-level temperature and HDD columns to the daily output file alongside the existing surface and wind columns, using the naming convention: `temp_{alt}_f` (e.g., `temp_3000ft_f`), `temp_{alt}_adjusted_f`, and `hdd_{alt}` (e.g., `hdd_3000ft`) for each of the six altitude levels.
+5. THE altitude-level microclimate profiles SHALL only be produced in daily mode (`--mode daily` or `--mode both`). Normals mode output is unchanged.
+6. IF HRRR pressure-level temperature data is missing for a given hour and altitude, THE Pipeline SHALL exclude that hour from the daily mean at that altitude and log a warning, consistent with the wind profile handling in Requirement 17 AC6.
+
+---
+
+### Requirement 20: Surface Property Mask and Boundary Layer Modification
+
+**User Story**: As a GA pilot or drone operator, I want the pipeline to account for surface roughness transitions (forest edges, water bodies, urban areas) when computing wind and temperature in the boundary layer (0–1,000 ft AGL), so that the low-altitude microclimate profiles reflect localized wind shear over forest edges and thermal subsidence over water bodies rather than treating the surface as uniform.
+
+#### Acceptance Criteria
+
+1. THE Pipeline SHALL construct a surface property mask from NLCD 2021 land cover classifications, mapping each NLCD class to three physical parameters using a lookup table defined in `config.py`:
+   - **Roughness length (z₀)** in meters: Water = 0.001, Urban/Developed = 1.0, Forest (Deciduous/Evergreen/Mixed) = 1.2, Shrub/Scrub = 0.15, Grassland/Pasture = 0.03, Cropland = 0.05, Barren = 0.005, Wetlands = 0.10. All other NLCD classes default to 0.05.
+   - **Albedo**: Water = 0.06, Urban = 0.15, Forest = 0.12, Shrub = 0.20, Grassland = 0.25, Cropland = 0.22, Barren = 0.30, Wetlands = 0.14.
+   - **Emissivity**: Water = 0.98, Urban = 0.92, Forest = 0.97, Shrub = 0.95, Grassland = 0.96, Cropland = 0.95, Barren = 0.90, Wetlands = 0.97.
+2. THE Pipeline SHALL compute a roughness length gradient (Δz₀) at each pixel by taking the spatial gradient magnitude of the z₀ field. Pixels where Δz₀ exceeds a configurable threshold (`ROUGHNESS_GRADIENT_THRESHOLD`, default 0.3 m per pixel) are flagged as **roughness transition zones** (e.g., forest edges, urban-rural boundaries).
+3. THE Pipeline SHALL compute a **wind shear correction** in roughness transition zones for altitudes ≤ 1,000 ft AGL using the log-law wind profile: `u(z) = (u_star / κ) × ln(z / z₀)`, where `κ = 0.41` (von Kármán constant) and `u_star` is the friction velocity derived from the HRRR 10 m wind and the local z₀. The wind shear correction is the difference between the log-law profile computed with the upwind z₀ and the local z₀, applied as an additive adjustment to the HRRR boundary-layer wind at altitudes ≤ 1,000 ft AGL.
+4. THE Pipeline SHALL compute a **thermal subsidence correction** over water bodies: where NLCD class is Open Water (11), the boundary-layer temperature at altitudes ≤ 1,000 ft AGL is reduced by a water cooling offset computed as `water_cooling_f = (T_land − T_water) × exp(−z_agl / H_bl)`, where `T_land` is the HRRR 2 m temperature over the nearest non-water pixel, `T_water` is the HRRR 2 m temperature over the water pixel, `z_agl` is the altitude in feet, and `H_bl = 500 ft` is the boundary layer decay height (configurable as `BL_DECAY_HEIGHT_FT` in `config.py`). This captures the thermal sink effect where cool air over rivers and lakes suppresses convective mixing in the lowest 500–1,000 ft.
+5. THE Pipeline SHALL write the surface property mask values (`z0_m`, `albedo`, `emissivity`, `roughness_transition_zone` boolean, `nlcd_class`) as additional columns in the daily output for each ZIP code, aggregated as the area-weighted mean (z₀, albedo, emissivity) or fraction (roughness_transition_zone) within each ZIP code polygon.
+6. THE boundary layer modifications (wind shear correction and thermal subsidence) SHALL only be applied to altitudes ≤ 1,000 ft AGL. Altitudes above 1,000 ft (3,000 ft, 6,000 ft, etc.) are unaffected and use the standard HRRR pressure-level interpolation from Requirement 17.
+7. THE surface property mask SHALL be computed once per pipeline run (it depends on NLCD, which is static) and reused across all daily time steps.
+
+---
+
+### Requirement 21: Surface Physics Engine and Aviation Safety Cube
+
+**User Story**: As a GA pilot or aviation safety analyst, I want the pipeline to produce a 3D "Aviation Safety Cube" — a per-ZIP-code, per-altitude, per-day data structure that integrates NLCD-derived surface physics (roughness, displacement height, albedo, TKE) with HRRR-downscaled atmospheric fields — so that I can assess wind shear, turbulence, thermal hazards, and icing risk at any altitude from the surface through 18,000 ft AGL.
+
+#### Acceptance Criteria
+
+1. THE Surface Physics Engine SHALL generate spatially-explicit maps of three physical parameters from NLCD 2021 land cover, computed once per pipeline run and reused across all daily time steps:
+   - **Roughness length (z₀)** — as defined in Requirement 20 AC1.
+   - **Zero-plane displacement height (d)** — the effective height at which the wind profile origin is shifted upward by dense surface elements. Lookup: Water (11): d = 0 m; Shrub (52): d = 0.5 m; Grassland/Pasture (71, 81): d = 0.1 m; Cropland (82): d = 0.3 m; Deciduous Forest (41): d = 15 m; Evergreen Forest (42): d = 18 m; Mixed Forest (43): d = 16 m; Developed Low (22): d = 5 m; Developed Med (23): d = 8 m; Developed High (24): d = 12 m; Developed Open (21): d = 2 m; Barren (31): d = 0 m; Wetlands (90, 95): d = 1 m. Default: d = 0.5 m.
+   - **Albedo** — as defined in Requirement 20 AC1.
+2. THE Surface Physics Engine SHALL apply land-cover-specific atmospheric modifiers to the HRRR boundary layer (0–1,000 ft AGL) before constructing the Aviation Safety Cube:
+   - **Water (NLCD 11)**: Apply a thermal sink (Requirement 20 AC4) AND reduce surface friction by using the water z₀ (0.001 m) in the displaced log-law wind profile, producing lower wind shear and smoother flow over water bodies.
+   - **Forests (NLCD 41–43)**: Compute the displaced wind profile using `u(z) = (u_star / κ) × ln((z − d) / z₀)` where `d` is the displacement height for the forest class. For altitudes below `d + z₀` (i.e., within the canopy), wind speed is set to zero. The displacement height shifts the effective wind profile origin upward, producing a wind speed deficit in the lowest 50–100 ft above the canopy that is critical for low-level GA operations near forested terrain.
+   - **Developed (NLCD 22–24)**: Apply the UHI temperature offset from Requirement 6 to the boundary-layer temperature profile (0–1,000 ft AGL) with exponential decay: `uhi_bl(z) = uhi_offset_f × exp(−z_agl / H_uhi)` where `H_uhi = 300 ft` (configurable as `UHI_BL_DECAY_HEIGHT_FT`). Additionally, compute a Turbulent Kinetic Energy (TKE) enhancement: `tke_urban = 0.5 × u_star² × (1 + 2 × (z0_urban / z0_rural))` where `z0_rural = 0.03 m` is the reference rural roughness. TKE is reported in m²/s² and indicates mechanical turbulence intensity.
+3. THE Pipeline SHALL construct the **Aviation Safety Cube** as a per-ZIP-code, per-altitude, per-date data structure with the following fields at each of the seven altitude levels (surface, 500 ft, 1,000 ft, 3,000 ft, 6,000 ft, 9,000 ft, 12,000 ft, 18,000 ft AGL):
+   - `temp_adjusted_f` — bias-corrected temperature (°F), with UHI boundary-layer decay applied for developed areas at ≤ 1,000 ft
+   - `wind_speed_kt` — wind speed (knots), with displaced log-law correction for forests and roughness transitions at ≤ 1,000 ft
+   - `wind_dir_deg` — wind direction (degrees true)
+   - `tke_m2s2` — turbulent kinetic energy (m²/s²); elevated over developed areas, near-zero over water, moderate over forests
+   - `wind_shear_kt_per_100ft` — vertical wind shear between this level and the level below (knots per 100 ft); flags mechanical shear from roughness transitions and thermal shear from inversions
+   - `hdd` — heating degree days at this altitude (same formula as Requirement 19)
+   - `density_altitude_ft` — pressure altitude corrected for non-standard temperature, computed as `pressure_alt + 120 × (temp_c − isa_temp_c)` where ISA temp decreases at 2°C per 1,000 ft from 15°C at sea level
+4. THE Aviation Safety Cube SHALL add two altitude levels not in the original wind profile (500 ft and 1,000 ft AGL) to provide finer resolution in the boundary layer where surface physics effects are strongest. These are interpolated from HRRR surface and pressure-level data using the same log-pressure method, then modified by the surface physics corrections.
+5. THE Aviation Safety Cube output SHALL be written to `output/microclimate/safety_cube_{region}_{start}_{end}.parquet` with one row per ZIP code × date × altitude level (8 altitude levels × N ZIP codes × N days). The Parquet file uses snappy compression and is partitioned by date for efficient time-range queries.
+6. THE Pipeline SHALL compute a **surface-level turbulence flag** for each ZIP code and date: `turbulence_flag` = `"smooth"` if TKE < 0.5 m²/s², `"light"` if 0.5–1.5, `"moderate"` if 1.5–3.0, `"severe"` if > 3.0. This flag is included at every altitude level in the cube.
+7. THE Aviation Safety Cube SHALL only be produced in daily mode (`--mode daily` or `--mode both`). Normals mode output is unchanged.
+
+---
+
+### Requirement 22: Real-Time Data Daemon (Optional)
+
+**User Story**: As an aviation weather operations team, I want a persistent daemon process that automatically polls for new hourly HRRR analysis cycles, downscales them against pre-cached static terrain and surface features, and produces an updated Aviation Safety Cube within minutes of each HRRR release, so that pilots and dispatchers have near-real-time microclimate data without manual pipeline invocations.
+
+#### Acceptance Criteria
+
+1. THE Daemon SHALL use the `herbie` Python library to poll for the latest available HRRR analysis cycle (`product="prs"`, `fxx=0`) at a configurable interval (default: every 5 minutes). When a new cycle is detected (i.e., a cycle newer than the last processed cycle), the daemon downloads and processes it automatically.
+2. THE Daemon SHALL maintain a pre-computed static cache of all non-temporal features: NLCD-derived roughness length, displacement height, albedo, emissivity, and roughness transition mask; LiDAR-derived slope, aspect, TPI, terrain position, and wind shadow mask; road heat flux raster; and UHI offset raster. The static cache is built once via a `--build-cache` CLI command and reused across all real-time cycles. The cache includes a manifest with file hashes so that stale caches are detected when source data changes.
+3. THE Daemon SHALL process each incoming HRRR cycle through a streaming pipeline that: (a) bias-corrects the HRRR temperature against PRISM normals; (b) downscales the 3 km HRRR fields to the 1 m LiDAR grid using bilinear interpolation; (c) applies all cached surface physics modifiers (forest displacement, UHI boundary-layer decay, water thermal subsidence, TKE); (d) extracts multi-altitude wind and temperature profiles; (e) assembles and writes an Aviation Safety Cube for that hour. The entire processing chain must complete within 120 seconds per cycle to keep pace with hourly HRRR releases.
+4. THE Daemon SHALL run the HRRR poller in a separate `multiprocessing.Process` to maintain system responsiveness. The main process consumes downloaded datasets from a queue and runs the streaming pipeline. This separation ensures that network I/O (polling and downloading) does not block the compute-intensive downscaling and physics calculations.
+5. THE Daemon SHALL handle graceful shutdown on SIGINT/SIGTERM by draining the processing queue, completing any in-progress cycle, writing a final status file, and exiting with code 0.
+6. THE Daemon SHALL write a `daemon_status.json` file to the real-time output directory, updated after each processed cycle, containing: `last_cycle_processed` (ISO 8601), `last_poll_time`, `cycles_processed_today`, `errors_today`, and `uptime_seconds`.
+7. THE Daemon SHALL rotate output folders older than 48 hours to an archive subdirectory to prevent unbounded disk growth. The retention period is configurable.
+8. ON startup, THE Daemon SHALL optionally process the last N hours of HRRR data (configurable via `--lookback`, default 2 hours) to backfill any cycles missed while the daemon was not running, before entering the polling loop.
+
+---
+
+### Requirement 23: Hourly Microclimate Mode
+
+**User Story**: As a GA pilot or UAS operator planning a flight within the next few hours, I want per-hour microclimate profiles (not daily averages) so that I can see how conditions change through the day — morning inversions, afternoon convective turbulence, evening wind shifts — at each altitude level for my departure and destination ZIP codes.
+
+#### Acceptance Criteria
+
+1. WHEN the `--mode hourly` CLI argument is specified along with a date range, THE Pipeline SHALL process each HRRR analysis hour individually (no daily averaging) and produce one Aviation Safety Cube per hour.
+2. THE hourly output SHALL contain one row per ZIP code × hour × altitude level, with columns: `datetime_utc` (ISO 8601 with hour precision), `zip_code`, `altitude_ft`, `temp_adjusted_f`, `wind_speed_kt`, `wind_dir_deg`, `tke_m2s2`, `wind_shear_kt_per_100ft`, `hourly_hdd`, `density_altitude_ft`, `turbulence_flag`.
+3. THE `hourly_hdd` value SHALL be computed as `max(0, 65 − temp_adjusted_f) / 24` so that summing all 24 hours for a day produces the daily `effective_hdd` (within floating-point tolerance).
+4. THE hourly output SHALL be written to `output/microclimate/hourly_{region}_{start}_{end}.parquet` partitioned by date, using snappy compression.
+5. THE same surface physics corrections (forest displacement, UHI boundary-layer decay, water thermal subsidence, TKE) SHALL be applied per-hour, using the actual hourly HRRR fields rather than daily averages.
+6. WHEN `--mode both` is specified with a date range, THE Pipeline SHALL run normals mode first, then daily mode, then hourly mode, reusing the terrain corrections computed in the normals pass.
+7. IF `--mode hourly` is specified without a date range, THE Pipeline SHALL raise a `ValueError` stating that hourly mode requires a date range or month.
