@@ -1,0 +1,10 @@
+rasterio>=1.3
+numpy>=1.24
+geopandas>=0.14
+scipy>=1.11
+pystac-client>=0.7
+pandas>=2.0
+pyproj>=3.6
+shapely>=2.0
+richdem>=0.3
+requests>=2.31
