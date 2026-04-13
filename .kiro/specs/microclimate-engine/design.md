@@ -2,13 +2,13 @@
 
 ## Overview
 
-The Regional Microclimate Modeling Engine is an 11-step Python pipeline that converts geographic regions in the regional utility service territory into a pre-computed microclimate lookup table (`terrain_attributes.csv`). The pipeline integrates five data layers — LiDAR terrain, PRISM temperature normals, NLCD imperviousness, MesoWest/NREL wind, and ODOT/WSDOT traffic — to produce an `effective_hdd` value for every planning district or Census block group.
+The Regional Microclimate Modeling Engine is an 11-step Python pipeline that converts geographic regions in Oregon and Washington into a pre-computed microclimate lookup table (`terrain_attributes.csv`). The pipeline integrates five data layers — LiDAR terrain, PRISM temperature normals, NLCD imperviousness, MesoWest/NREL wind, and ODOT/WSDOT traffic — to produce an `effective_hdd` value for every ZIP code or Census block group.
 
 **Inputs**: LiDAR DEM (1 m), PRISM monthly temperature normals (800 m), NLCD imperviousness (30 m), Landsat 9 LST (30 m), MesoWest wind observations (point), NREL wind resource (2 km), ODOT/WSDOT AADT shapefiles (vector), OR/WA state boundary polygon (vector).
 
-**Output**: `terrain_attributes.csv` — one row per district/block group, all corrections pre-computed, joined to the simulation pipeline on `microclimate_id` and `district_code` at runtime. No raster sampling occurs during simulation runs.
+**Output**: `terrain_attributes.csv` — one row per ZIP code/block group, all corrections pre-computed, joined to downstream models on `microclimate_id` and `zip_code` at runtime. No raster sampling occurs during downstream model runs.
 
-**Relationship to parent model**: The End-Use Forecasting Model assigns every premise a base HDD from `DISTRICT_WEATHER_MAP`. This pipeline refines that base HDD into `effective_hdd` by applying terrain, surface, wind, and traffic corrections at sub-district scale. The simulation pipeline replaces `base_hdd` with `effective_hdd` when `terrain_attributes.csv` is present.
+**Relationship to downstream models**: Any forecasting or analysis model that uses a single airport-station HDD per geographic area can replace that base HDD with `effective_hdd` from this pipeline. The `ZIPCODE_STATION_MAP` in `config.py` maps each ZIP code to its nearest NOAA station; the pipeline refines that base HDD by applying terrain, surface, wind, and traffic corrections at sub-ZIP-code scale.
 
 ---
 
@@ -18,7 +18,7 @@ The pipeline is organized into 11 sequential steps, each corresponding to a proc
 
 ```
 Step 1  → clip_to_boundary        (define region, mask to OR/WA state boundary)
-Step 2  → config.DISTRICT_WEATHER_MAP  (district → base station lookup)
+Step 2  → config.ZIPCODE_STATION_MAP  (ZIP code → base station lookup)
 Step 3  → load_prism_temperature   (atmospheric base HDD grid)
 Step 4  → downscale               (all rasters → 1m LiDAR grid)
 Step 5  → terrain_analysis        (aspect, slope, TPI, wind shadow, lapse rate)
@@ -27,7 +27,7 @@ Step 7  → wind_steering           (stagnation multiplier, infiltration multipl
 Step 8  → anthropogenic_load      (road buffers, heat flux)
 Step 9  → combine_corrections     (effective_hdd per grid cell)
 Step 10 → weather adjustment      (optional: actual/normal HDD ratio)
-Step 11 → write_terrain_attributes (aggregate to district, write CSV)
+Step 11 → write_terrain_attributes (aggregate to ZIP code, write CSV)
 ```
 
 ---
@@ -47,7 +47,7 @@ src/
 │   ├── load_nlcd_impervious.py    # Load GeoTIFF, handle sentinel values
 │   └── load_road_emissions.py     # Load shapefile, filter AADT > 0, compute heat flux per segment
 ├── processors/
-│   ├── clip_to_boundary.py        # Clip all rasters to ODOE utility boundary polygon
+│   ├── clip_to_boundary.py        # Clip all rasters to OR/WA state boundary polygon
 │   ├── downscale.py               # Reproject all rasters to 1m LiDAR grid (bilinear)
 │   ├── terrain_analysis.py        # Aspect, slope, TPI (annulus 300–1000m), wind shadow, lapse rate
 │   ├── thermal_logic.py           # Surface albedo, solar aspect multiplier, UHI offset, Landsat calibration
@@ -58,16 +58,16 @@ src/
 │   ├── qa_checks.py               # Range checks, directional sanity, flag implausible values
 │   └── billing_comparison.py      # Compare effective_hdd against billing-derived therms per customer
 └── output/
-    └── write_terrain_attributes.py  # Aggregate 1m grid to district/block group, assign microclimate_id, write CSV
+    └── write_terrain_attributes.py  # Aggregate 1m grid to ZIP code/block group, assign microclimate_id, write CSV
 ```
 
 ---
 
 ## Key Design Decisions
 
-1. **Region-by-region processing**: The pipeline processes one region at a time (e.g., `portland_metro`, `the_dalles`) to keep memory usage manageable. A 1 m LiDAR DEM for the Portland Metro region is approximately 50–100 GB uncompressed; loading the full service territory simultaneously is not feasible.
+1. **Region-by-region processing**: The pipeline processes one region at a time to keep memory usage manageable. A 1 m LiDAR DEM for a metro region is approximately 50–100 GB uncompressed; loading the full OR/WA extent simultaneously is not feasible.
 
-2. **ODOE boundary as the authoritative mask**: All rasters are clipped to the ODOE Gas Utility boundary before any computation. This prevents edge effects from adjacent utility territories and ensures output rows correspond only to NW Natural premises.
+2. **OR/WA state boundary as the authoritative mask**: All rasters are clipped to the Oregon/Washington state boundary before any computation. This prevents edge effects and ensures output rows correspond only to ZIP codes within the study area. An optional utility or custom boundary shapefile can be supplied via `BOUNDARY_SHP` in `config.py` to further restrict the processing extent.
 
 3. **LiDAR DEM as the reference grid**: All other rasters are snapped to the LiDAR DEM's CRS, pixel size, and origin. This eliminates alignment errors that would arise from independent grid definitions. The target CRS is NAD83 / UTM Zone 10N (EPSG:26910) for all Oregon and most Washington districts.
 
@@ -77,11 +77,11 @@ src/
 
 6. **TPI annulus radius 300–1,000 m for valley/ridge classification**: This scale captures the terrain features that matter for cold air pooling and wind exposure (neighborhood-scale ridges and valleys) without being dominated by micro-topography (individual buildings, road cuts) or macro-topography (the Cascades vs. the valley floor).
 
-7. **Prevailing wind direction 225° (SW) for windward/leeward classification**: The dominant wind direction across the NW Natural service territory is from the SW, driven by Pacific storm tracks. This constant is defined in `config.py` as `PREVAILING_WIND_DEG` and can be overridden per region for the Columbia Gorge (where east-west channeling dominates).
+7. **Prevailing wind direction 225° (SW) for windward/leeward classification**: The dominant wind direction across Oregon and Washington is from the SW, driven by Pacific storm tracks. This constant is defined in `config.py` as `PREVAILING_WIND_DEG` and can be overridden per region for the Columbia Gorge (where east-west channeling dominates).
 
-8. **`microclimate_id` format: `{region_code}_{district_code_IRP}_{base_station}`**: This format encodes the three levels of the geographic hierarchy in a single readable string. Example: `PDX_MULT_KPDX` = Portland Metro region, Multnomah County district, Portland airport station. The format is stable across pipeline re-runs as long as the region registry and district map do not change.
+8. **`microclimate_id` format: `{region_code}_{zip_code}_{base_station}`**: This format encodes the three levels of the geographic hierarchy in a single readable string. Example: `R1_97201_KPDX` = Region 1, ZIP code 97201, Portland airport station. The format is stable across pipeline re-runs as long as the region registry does not change.
 
-9. **`terrain_attributes.csv` as pre-computed lookup**: The simulation pipeline joins on `microclimate_id` at runtime. No raster files are opened during a simulation run. This decouples the computationally expensive microclimate pipeline (hours to run) from the simulation pipeline (seconds to run) and allows the CSV to be version-controlled and audited independently.
+9. **`terrain_attributes.csv` as pre-computed lookup**: Downstream models join on `microclimate_id` at runtime. No raster files are opened during a model run. This decouples the computationally expensive microclimate pipeline (hours to run) from downstream models (seconds to run) and allows the CSV to be version-controlled and audited independently.
 
 10. **`pystac-client` for Landsat 9 scene access via Microsoft Planetary Computer**: Rather than requiring manual download of Landsat 9 scenes from USGS EarthExplorer, the pipeline uses `pystac-client` to query the Microsoft Planetary Computer STAC catalog. This enables reproducible, automated access to cloud-hosted Landsat 9 Collection 2 Level-2 scenes filtered by date, cloud cover, and bounding box.
 
@@ -92,7 +92,7 @@ src/
 ```mermaid
 flowchart TD
     subgraph INPUTS["Data Inputs"]
-        A1["ODOE Utility Boundary\nvector shapefile"]
+        A1["OR/WA State Boundary\nvector shapefile"]
         A2["NOAA Station Normals\n11 stations · point CSV"]
         A3["PRISM Temp Normals\n800m · 12 monthly BIL"]
         A4["LiDAR DEM\n1m · DOGAMI / WA DNR"]
@@ -184,17 +184,17 @@ flowchart TD
 
 ## Output Schema
 
-Full column definitions for `terrain_attributes.csv`. One row per IRP district or Census block group per pipeline run.
+Full column definitions for `terrain_attributes.csv`. One row per ZIP code or Census block group per pipeline run.
 
 | Column | Type | Description |
 |--------|------|-------------|
-| `microclimate_id` | string | Unique identifier: `{region_code}_{district_code_IRP}_{base_station}` (e.g., `PDX_MULT_KPDX`) |
-| `district_code_IRP` | string | NW Natural IRP district code (e.g., `MULT`, `LANE`, `SKAM`) — primary join key to premise-equipment table |
-| `geo_id` | string | District code or Census block group GEOID |
-| `region` | string | Processing region name (e.g., `portland_metro`, `the_dalles`, `coos_bay`) |
+| `microclimate_id` | string | Unique identifier: `{region_code}_{zip_code}_{base_station}` (e.g., `R1_97201_KPDX`) |
+| `zip_code` | string | US ZIP code — primary geographic key for joins to external datasets |
+| `geo_id` | string | ZIP code or Census block group GEOID |
+| `region` | string | Processing region name (e.g., `region_1`) |
 | `base_station` | string | NOAA weather station ICAO code (e.g., `KPDX`) |
 | `terrain_position` | string | Dominant terrain position: `windward`, `leeward`, `valley`, or `ridge` |
-| `mean_elevation_ft` | float64 | Mean elevation of the district/block group in feet above sea level |
+| `mean_elevation_ft` | float64 | Mean elevation of the ZIP code/block group in feet above sea level |
 | `dominant_aspect_deg` | float64 | Modal aspect direction in degrees (0–360°, clockwise from north) |
 | `mean_wind_ms` | float64 | Mean annual surface wind speed (m/s) from MesoWest/NREL combined surface |
 | `wind_infiltration_mult` | float64 | HDD multiplier from wind-driven envelope infiltration (1.0 = baseline at 3 m/s) |
@@ -203,7 +203,7 @@ Full column definitions for `terrain_attributes.csv`. One row per IRP district o
 | `mean_impervious_pct` | float64 | Mean NLCD 2021 impervious surface percentage (0–100) |
 | `surface_albedo` | float64 | Computed surface albedo (0.05–0.20) from NLCD imperviousness |
 | `uhi_offset_f` | float64 | UHI temperature offset (°F above rural baseline), wind-stagnation adjusted |
-| `road_heat_flux_wm2` | float64 | Mean traffic waste heat flux within district (W/m²) |
+| `road_heat_flux_wm2` | float64 | Mean traffic waste heat flux within ZIP code (W/m²) |
 | `road_temp_offset_f` | float64 | Temperature offset from road heat flux (°F) |
 | `hdd_terrain_mult` | float64 | HDD multiplier from terrain position (windward/leeward/valley/ridge) |
 | `hdd_elev_addition` | float64 | HDD addition from elevation lapse rate above base station (°F-days) |
@@ -223,7 +223,7 @@ Full column definitions for `terrain_attributes.csv`. One row per IRP district o
 |---------|---------|------|
 | `rasterio` | ≥ 1.3 | GeoTIFF I/O, reprojection, raster sampling, bilinear resampling |
 | `numpy` | ≥ 1.24 | Array math, gradient computation, masking, TPI annulus calculation |
-| `geopandas` | ≥ 0.14 | Shapefile I/O, ODOE boundary clipping, road buffer geometry |
+| `geopandas` | ≥ 0.14 | Shapefile I/O, boundary clipping, road buffer geometry |
 | `scipy` | ≥ 1.11 | Bilinear interpolation smoothing (`ndimage`), spatial bias correction |
 | `pystac-client` | ≥ 0.7 | Landsat 9 scene discovery via Microsoft Planetary Computer STAC catalog |
 | `pandas` | ≥ 2.0 | CSV I/O, terrain attributes table construction, QA report tabulation |

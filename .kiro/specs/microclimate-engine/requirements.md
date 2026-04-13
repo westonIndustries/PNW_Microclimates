@@ -2,11 +2,11 @@
 
 ## Introduction
 
-The **Regional Microclimate Modeling Engine** is a Python processing pipeline that converts geographic regions in the regional utility service area into high-resolution microclimate maps. It integrates terrain data, surface imperviousness, atmospheric temperature normals, wind observations, and traffic-derived heat flux to produce an `effective_hdd` value for every planning district or Census block group. This value replaces the single airport-station HDD used in the base forecasting model, capturing sub-district variation driven by terrain position, urban heat island effects, wind exposure, and anthropogenic heat load.
+The **Regional Microclimate Modeling Engine** is a Python processing pipeline that converts geographic regions in Oregon and Washington into high-resolution microclimate maps at the ZIP code level. It integrates terrain data, surface imperviousness, atmospheric temperature normals, wind observations, and traffic-derived heat flux to produce an `effective_hdd` value for every ZIP code or Census block group. This value replaces the single airport-station HDD used in conventional forecasting, capturing sub-ZIP-code variation driven by terrain position, urban heat island effects, wind exposure, and anthropogenic heat load.
 
-**Primary users**: Forecasting analysts and data engineers who maintain and run the simulation pipeline. Secondary users: regulatory staff reviewing load forecasts who need to understand how weather normalization is applied at sub-district scale.
+**Primary users**: Forecasting analysts and data engineers who maintain and run analysis pipelines. Secondary users: regulatory staff reviewing load forecasts who need to understand how weather normalization is applied at sub-regional scale.
 
-**Scope**: The pipeline covers the full Oregon and Washington service territory as a single processing region (`region_1`). It produces a pre-computed lookup table (`terrain_attributes.csv`) that the simulation pipeline joins at runtime. The pipeline does not perform real-time raster sampling during simulation runs.
+**Scope**: The pipeline covers the full Oregon and Washington extent as a single processing region (`region_1`). It produces a pre-computed lookup table (`terrain_attributes.csv`) that downstream models can join at runtime. The pipeline does not perform real-time raster sampling during model runs.
 
 ---
 
@@ -14,8 +14,8 @@ The **Regional Microclimate Modeling Engine** is a Python processing pipeline th
 
 | Term | Definition |
 |------|-----------|
-| **microclimate_id** | Unique string identifier for a microclimate area, formatted as `{region_code}_{district_code}_{base_station}` (e.g., `R1_DIST01_KPDX`). Primary key in `terrain_attributes.csv`. |
-| **effective_hdd** | Adjusted annual heating degree days (base 65°F) for a district or block group, incorporating terrain, surface, wind, and traffic corrections on top of the PRISM/NOAA atmospheric base. |
+| **microclimate_id** | Unique string identifier for a microclimate area, formatted as `{region_code}_{zip_code}_{base_station}` (e.g., `R1_97201_KPDX`). Primary key in `terrain_attributes.csv`. |
+| **effective_hdd** | Adjusted annual heating degree days (base 65°F) for a ZIP code or block group, incorporating terrain, surface, wind, and traffic corrections on top of the PRISM/NOAA atmospheric base. |
 | **TPI** | Topographic Position Index — the elevation at a point minus the mean elevation within a surrounding annulus (300–1,000 m radius). Negative TPI indicates a valley; positive TPI indicates a ridge. |
 | **UHI** | Urban Heat Island — the phenomenon where dense impervious surfaces (asphalt, rooftops) absorb solar radiation and re-emit it as heat, raising effective air temperatures 2–5°F above the rural baseline. |
 | **AADT** | Annual Average Daily Traffic — the total volume of vehicle traffic on a road segment divided by 365, used to compute anthropogenic heat flux from vehicle exhaust and friction. |
@@ -24,6 +24,15 @@ The **Regional Microclimate Modeling Engine** is a Python processing pipeline th
 | **terrain_position** | Classification of each pixel as `windward`, `leeward`, `valley`, or `ridge` based on aspect relative to the prevailing SW wind (225°) and TPI. |
 | **wind shadow** | A binary raster mask identifying areas where terrain blocks the prevailing wind, derived from TPI and aspect. Wind shadow areas have reduced infiltration loads but may trap urban heat. |
 | **lapse rate** | The rate at which temperature decreases with elevation — approximately 3.5°F per 1,000 ft, equivalent to ~630 HDD per 1,000 ft above the base weather station. |
+| **HRRR** | High-Resolution Rapid Refresh — a NOAA 3 km hourly atmospheric model covering CONUS, available from ~2014 to present. Provides temperature, wind, and other variables at multiple pressure levels. Archived on AWS S3 (`s3://noaa-hrrr-bdp-pds/`) and Google Cloud. |
+| **GRIB2** | GRIdded Binary Edition 2 — the WMO standard binary format for gridded meteorological data. HRRR forecast files are distributed as GRIB2. Each file is ~50–100 MB per forecast hour. |
+| **cfgrib** | A Python library that provides an xarray-compatible engine for reading GRIB2 files. Used via `xarray.open_dataset(path, engine="cfgrib")`. |
+| **AGL** | Above Ground Level — altitude measured relative to the terrain surface rather than mean sea level. GA flight altitudes are typically expressed in feet AGL or MSL. |
+| **pressure_level** | A constant-pressure surface in the atmosphere (e.g., 925 mb, 850 mb, 700 mb, 500 mb). HRRR provides wind and temperature fields at 22 pressure levels from 1000 mb to 500 mb. Standard altitude approximations: 925 mb ≈ 2,500 ft, 850 mb ≈ 5,000 ft, 700 mb ≈ 10,000 ft, 500 mb ≈ 18,000 ft. |
+| **bias_correction** | An additive adjustment applied to HRRR daily fields so they inherit PRISM's terrain-aware station calibration: `hrrr_adjusted = hrrr_raw + (prism_normal − hrrr_climatology)`. |
+| **GA** | General Aviation — non-commercial, non-military flying. GA aircraft typically operate below 18,000 ft MSL (Class G/E airspace). |
+| **daily_mode** | A pipeline operating mode that uses HRRR as the atmospheric base (instead of PRISM normals) to produce daily `effective_hdd` and multi-altitude wind profiles per ZIP code. Contrast with **normals_mode** (existing PRISM-based annual output). |
+| **normals_mode** | The existing pipeline operating mode that uses PRISM 30-year climate normals as the atmospheric base to produce annual `effective_hdd` per ZIP code. |
 
 ---
 
@@ -33,13 +42,13 @@ The **Regional Microclimate Modeling Engine** is a Python processing pipeline th
 
 ### Requirement 1: Spatial Boundary and Region Definition
 
-**User Story**: As a forecasting analyst, I want the pipeline to process one geographic region at a time and clip all rasters to the state utility boundary, so that memory usage is manageable and results are confined to the actual service footprint.
+**User Story**: As a forecasting analyst, I want the pipeline to process one geographic region at a time and clip all rasters to the OR/WA state boundary, so that memory usage is manageable and results are confined to the study area.
 
 **Acceptance Criteria**:
 
-1. The pipeline accepts a `region_name` parameter (e.g., `region_1`) that selects a predefined bounding box and district list from the region registry in `config.py`.
-2. All input rasters are clipped to the OR/WA state boundary polygon before any computation. Pixels outside the service territory boundary are masked and excluded from all outputs.
-3. The region registry defines `region_1` (Oregon + Washington extent, bounding box: minx=-124.8, miny=41.9, maxx=-116.9, maxy=49.1 in EPSG:4326) with: region name, list of planning district codes, primary base station(s), and bounding box coordinates.
+1. The pipeline accepts a `region_name` parameter (e.g., `region_1`) that selects a predefined bounding box and ZIP code list from the region registry in `config.py`.
+2. All input rasters are clipped to the OR/WA state boundary polygon before any computation. Pixels outside the boundary are masked and excluded from all outputs.
+3. The region registry defines `region_1` (Oregon + Washington extent, bounding box: minx=-124.8, miny=41.9, maxx=-116.9, maxy=49.1 in EPSG:4326) with: region name, list of ZIP codes, primary base station(s), and bounding box coordinates.
 4. Running the pipeline for a region that does not exist in the registry raises a descriptive `ValueError` identifying the unknown region name and listing valid options.
 5. The clipped raster extents are logged at the start of each run, including pixel dimensions and CRS.
 
@@ -125,9 +134,9 @@ The **Regional Microclimate Modeling Engine** is a Python processing pipeline th
 
 1. The loader reads a Landsat 9 Collection 2 Level-2 LST GeoTIFF, applies the Collection 2 scale factor (0.00341802) and offset (149.0) to convert to Kelvin, then subtracts 273.15 to produce a Celsius array.
 2. Urban pixels are defined as NLCD imperviousness ≥ 50%; rural pixels are defined as imperviousness ≤ 10%.
-3. The mean LST difference between urban and rural pixels within each district is computed and compared against the NLCD-derived `uhi_offset_f`. If the observed difference exceeds the modeled offset by more than 1.5°C, a calibration warning is logged.
+3. The mean LST difference between urban and rural pixels within each ZIP code is computed and compared against the NLCD-derived `uhi_offset_f`. If the observed difference exceeds the modeled offset by more than 1.5°C, a calibration warning is logged.
 4. The calibrated `uhi_offset_f` is adjusted toward the Landsat-observed value using a weighted blend: 70% NLCD-derived, 30% Landsat-observed.
-5. The mean summer LST for each district is written to the `lst_summer_c` column in `terrain_attributes.csv`.
+5. The mean summer LST for each ZIP code is written to the `lst_summer_c` column in `terrain_attributes.csv`.
 6. If the Landsat LST file is not available, the pipeline logs a warning and proceeds without calibration, using the NLCD-derived UHI offset unchanged.
 
 ---
@@ -145,7 +154,7 @@ The **Regional Microclimate Modeling Engine** is a Python processing pipeline th
    - Wind speed 3–5 m/s: UHI offset × 1.0
    - Wind speed < 3 m/s and in wind shadow: UHI offset × 1.3
 4. The wind infiltration multiplier adds 1.5% to the effective HDD for each 1 m/s above 3 m/s (sheltered suburban baseline).
-5. The Columbia River Gorge districts receive a wind infiltration multiplier floor of 1.15, reflecting the high-wind corridor effect.
+5. The Columbia River Gorge ZIP codes (served by stations KDLS and KTTD) receive a wind infiltration multiplier floor of 1.15, reflecting the high-wind corridor effect.
 6. The output `mean_wind_ms` and `wind_infiltration_mult` columns are written to `terrain_attributes.csv`.
 
 ---
@@ -161,13 +170,13 @@ The **Regional Microclimate Modeling Engine** is a Python processing pipeline th
 3. The heat flux is distributed uniformly within the buffer zone. Overlapping buffers from multiple road segments are summed.
 4. The road heat flux is converted to a temperature offset: `road_temp_offset_f = road_heat_flux_wm2 / 5.5 × 9/5`.
 5. The output `road_heat_flux_wm2` and `road_temp_offset_f` columns are written to `terrain_attributes.csv`.
-6. Districts with no road segments in the AADT shapefiles receive `road_heat_flux_wm2 = 0.0` and `road_temp_offset_f = 0.0`.
+6. ZIP codes with no road segments in the AADT shapefiles receive `road_heat_flux_wm2 = 0.0` and `road_temp_offset_f = 0.0`.
 
 ---
 
 ### Requirement 10: Effective HDD Computation
 
-**User Story**: As a forecasting analyst, I want the pipeline to combine all terrain, surface, wind, and traffic corrections into a single `effective_hdd` per district, so that the simulation pipeline has a single pre-computed value to join on.
+**User Story**: As a forecasting analyst, I want the pipeline to combine all terrain, surface, wind, and traffic corrections into a single `effective_hdd` per ZIP code, so that downstream models have a single pre-computed value to join on.
 
 **Acceptance Criteria**:
 
@@ -179,7 +188,7 @@ The **Regional Microclimate Modeling Engine** is a Python processing pipeline th
                  − uhi_hdd_reduction
                  − traffic_heat_hdd_reduction
    ```
-   where `base_hdd` is the PRISM bias-corrected annual HDD for the district's base station.
+   where `base_hdd` is the PRISM bias-corrected annual HDD for the ZIP code's base station.
 2. `elevation_hdd_addition` is computed as: `(mean_elevation_ft − station_elevation_ft) / 1000 × 630`.
 3. `traffic_heat_hdd_reduction` is computed as: `road_temp_offset_f × 180`.
 4. All intermediate correction columns (`hdd_terrain_mult`, `hdd_elev_addition`, `hdd_uhi_reduction`) are retained in `terrain_attributes.csv`.
@@ -189,15 +198,15 @@ The **Regional Microclimate Modeling Engine** is a Python processing pipeline th
 
 ### Requirement 11: Output Schema
 
-**User Story**: As a data engineer, I want the pipeline to write a `terrain_attributes.csv` with a well-defined schema including `microclimate_id`, `district_code`, and all correction columns, so that the simulation pipeline can join on a stable key without re-sampling rasters.
+**User Story**: As a data engineer, I want the pipeline to write a `terrain_attributes.csv` with a well-defined schema including `microclimate_id`, `zip_code`, and all correction columns, so that downstream models can join on a stable key without re-sampling rasters.
 
 **Acceptance Criteria**:
 
 1. The output file is written to the path specified by `TERRAIN_ATTRIBUTES_CSV` in `config.py`.
-2. The `microclimate_id` is formatted as `{region_code}_{district_code}_{base_station}` (e.g., `R1_DIST01_KPDX`). It is unique per row.
+2. The `microclimate_id` is formatted as `{region_code}_{zip_code}_{base_station}` (e.g., `R1_97201_KPDX`). It is unique per row.
 3. The CSV contains all columns defined in the output schema (see design doc), with correct data types: string for identifiers, float64 for numeric corrections, int for HDD values.
-4. The `district_code` column is the primary join key back to the premise-equipment table. It must match the values in `DISTRICT_WEATHER_MAP` exactly.
-5. No raster files are read or sampled at simulation runtime — all corrections are pre-computed and stored in the CSV.
+4. The `zip_code` column is the primary join key to external datasets. It must match the values in `ZIPCODE_STATION_MAP` exactly.
+5. No raster files are read or sampled at downstream model runtime — all corrections are pre-computed and stored in the CSV.
 
 ---
 
@@ -222,8 +231,8 @@ The **Regional Microclimate Modeling Engine** is a Python processing pipeline th
 **Acceptance Criteria**:
 
 1. Range checks flag any `effective_hdd` value outside 2,000–8,000 as a warning.
-2. Directional sanity checks verify: (a) urban districts have lower `effective_hdd` than their rural neighbors; (b) windward districts have higher `effective_hdd` than leeward districts in the same region; (c) high-elevation districts have higher `effective_hdd` than low-elevation districts in the same region.
-3. Billing comparison checks that `effective_hdd` for each district is within 15% of the billing-derived therms-per-customer ratio for that district. Divergences > 15% are flagged as warnings. This check is optional and requires utility-specific billing data; if the billing reference CSV is not present, this check is skipped and a notice is logged.
+2. Directional sanity checks verify: (a) urban ZIP codes have lower `effective_hdd` than their rural neighbors; (b) windward ZIP codes have higher `effective_hdd` than leeward ZIP codes in the same region; (c) high-elevation ZIP codes have higher `effective_hdd` than low-elevation ZIP codes in the same region.
+3. Billing comparison checks that `effective_hdd` for each ZIP code is within 15% of the billing-derived therms-per-customer ratio for that area. Divergences > 15% are flagged as warnings. This check is optional and requires billing data; if the billing reference CSV is not present, this check is skipped and a notice is logged.
 4. The QA report is written to `output/microclimate/` as both `qa_report.html` and `qa_report.md`.
 5. The pipeline exits with a non-zero return code if any hard failures are detected (e.g., `effective_hdd` < 0 or > 15,000).
 
@@ -259,3 +268,56 @@ The **Regional Microclimate Modeling Engine** is a Python processing pipeline th
    - Annual model calibration cycle: re-run Step 10 (weather adjustment) only
 2. The `run_date`, `lidar_vintage`, `nlcd_vintage`, and `prism_period` columns in `terrain_attributes.csv` (Requirement 12) provide the mechanism for identifying which rows are stale after any of these events.
 3. A `--dry-run` CLI flag prints the list of steps that would be executed for a given region without writing any output files.
+
+---
+
+### Requirement 16: HRRR Data Ingestion
+
+**User Story**: As a data engineer, I want the pipeline to download and cache HRRR 3 km GRIB2 analysis files from AWS S3 or Google Cloud for a specified date range, so that the daily mode has access to hourly atmospheric fields (temperature, wind, humidity) at high spatial resolution across CONUS.
+
+#### Acceptance Criteria
+
+1. WHEN a date range is specified via `--start-date` and `--end-date` CLI arguments (or a single month via `--month YYYY-MM`), THE HRRR_Loader SHALL download HRRR analysis files (f00 forecast hour = analysis) for every hour in that range from the AWS S3 archive at `s3://noaa-hrrr-bdp-pds/` using anonymous (unsigned) access. The `--month` shorthand expands to the first and last day of the specified month (e.g., `--month 2024-01` is equivalent to `--start-date 2024-01-01 --end-date 2024-01-31`).
+2. WHEN a HRRR GRIB2 file for a requested hour already exists in the local cache directory (`data/hrrr/`), THE HRRR_Loader SHALL skip the download for that hour and use the cached file.
+3. THE HRRR_Loader SHALL read each GRIB2 file using `xarray.open_dataset` with `engine="cfgrib"` and extract the following variables: 2 m temperature (`TMP:2 m above ground`), 10 m U-wind component (`UGRD:10 m above ground`), 10 m V-wind component (`VGRD:10 m above ground`), and pressure-level U/V wind components at all available levels from 1000 mb to 500 mb.
+4. IF a HRRR file is unavailable on S3 for a requested hour (HTTP 404 or missing key), THEN THE HRRR_Loader SHALL log a warning identifying the missing hour and continue processing the remaining hours without raising an exception.
+5. IF the `--hrrr-source` CLI argument is set to `gcs`, THEN THE HRRR_Loader SHALL download from the Google Cloud HRRR archive (`gs://high-resolution-rapid-refresh/`) instead of AWS S3.
+6. THE HRRR_Loader SHALL write a download manifest CSV to `data/hrrr/manifest.csv` listing each requested hour, its download status (`downloaded`, `cached`, `missing`), file size in bytes, and the source URL.
+7. WHEN all hours for a requested date have been downloaded, THE HRRR_Loader SHALL compute a daily mean 2 m temperature grid by averaging the 24 hourly analysis grids for that date and return the daily mean as an xarray DataArray with dimensions `(y, x)` in the HRRR native Lambert Conformal projection.
+8. THE HRRR_Loader SHALL validate that the requested date range falls within the HRRR archive availability window: July 30, 2014 to present. IF a date before 2014-07-30 is requested, THEN THE HRRR_Loader SHALL raise a `ValueError` stating the earliest available HRRR date.
+9. THE HRRR_Loader SHALL log the total data volume (number of hours, estimated download size at ~50–100 MB per file) before starting the download, and prompt for confirmation if the estimated total exceeds 10 GB (approximately 4–5 days of hourly data) unless `--no-confirm` is specified.
+
+---
+
+### Requirement 17: Multi-Altitude Wind Profiles
+
+**User Story**: As a forecasting analyst supporting GA flight planning and drone operations, I want the pipeline to extract wind speed and direction at standard GA flight altitudes below 18,000 ft from HRRR pressure-level data, so that pilots and UAS operators can assess wind conditions at their planned cruise altitude for each ZIP code.
+
+#### Acceptance Criteria
+
+1. THE Wind_Profile_Extractor SHALL produce wind speed (knots) and wind direction (degrees true) at six standard altitude levels for each ZIP code: surface (10 m AGL), 3,000 ft AGL, 6,000 ft AGL, 9,000 ft AGL, 12,000 ft AGL, and 18,000 ft AGL.
+2. WHEN the requested altitude falls between two HRRR pressure levels, THE Wind_Profile_Extractor SHALL interpolate wind U and V components linearly in log-pressure space between the bounding pressure levels, then compute speed and direction from the interpolated components.
+3. THE Wind_Profile_Extractor SHALL convert HRRR pressure levels to approximate altitude AGL using the hypsometric equation with the HRRR 2 m temperature and surface pressure fields, rather than using fixed pressure-to-altitude lookup values.
+4. WHEN HRRR data is available for multiple hours in a day, THE Wind_Profile_Extractor SHALL compute both the daily mean wind profile and the daily maximum wind speed at each altitude level per ZIP code.
+5. THE Wind_Profile_Extractor SHALL assign wind profiles to ZIP codes by sampling the HRRR grid cell whose center is nearest to each ZIP code centroid.
+6. IF a HRRR pressure-level field is missing or contains only fill values for a given hour, THEN THE Wind_Profile_Extractor SHALL exclude that hour from the daily aggregation and log a warning identifying the missing level and hour.
+7. THE Wind_Profile_Extractor SHALL write the output wind profiles to columns in the daily output file using the naming convention `wind_speed_{alt}_kt` and `wind_dir_{alt}_deg` (e.g., `wind_speed_3000ft_kt`, `wind_dir_3000ft_deg`) for each of the six altitude levels, plus `wind_max_{alt}_kt` for the daily maximum at each level.
+
+---
+
+### Requirement 18: Daily Microclimate Mode
+
+**User Story**: As a forecasting analyst, I want a daily operating mode that uses HRRR as the atmospheric base (bias-corrected against PRISM climatology) and applies the same terrain corrections as the normals mode, so that I can produce daily `effective_hdd` and multi-altitude wind profiles per ZIP code for historical analysis and short-range forecasting.
+
+#### Acceptance Criteria
+
+1. WHEN the `--mode daily` CLI argument is specified along with a date range (`--start-date` and `--end-date`, or `--month YYYY-MM`), THE Pipeline SHALL operate in daily mode, using HRRR daily mean temperature as the atmospheric base instead of PRISM annual normals.
+2. THE Pipeline SHALL bias-correct the HRRR daily temperature field against PRISM climatology using the additive formula: `hrrr_adjusted = hrrr_raw + (prism_normal − hrrr_climatology)`, where `prism_normal` is the PRISM 30-year monthly mean for the corresponding month (period: 1991–2020) and `hrrr_climatology` is the HRRR multi-year mean for the same month (computed from all available HRRR years in the cache, minimum 3 years required). The PRISM normals cover the 1991–2020 climate period; the HRRR archive covers July 30, 2014 to present. Daily mode is therefore limited to dates within the HRRR archive window.
+3. WHEN the HRRR cache contains fewer than 3 years of data for the target month, THE Pipeline SHALL log a warning and fall back to using the PRISM normal directly as the bias correction reference (i.e., `hrrr_adjusted = hrrr_raw + (prism_normal − hrrr_raw_monthly_mean)` using only the available cached data).
+4. THE Pipeline SHALL apply the same terrain corrections in daily mode as in normals mode: TPI-based terrain position multiplier, elevation lapse rate addition, UHI reduction, wind stagnation adjustment, and traffic heat reduction. The correction formulas and constants are identical between modes.
+5. THE Pipeline SHALL compute daily `effective_hdd` for each ZIP code as: `daily_effective_hdd = max(0, 65 − hrrr_adjusted_temp_f) × terrain_multiplier + daily_elev_addition − daily_uhi_reduction − daily_traffic_reduction`, where `hrrr_adjusted_temp_f` is the bias-corrected HRRR daily mean temperature in °F for that ZIP code.
+6. THE Pipeline SHALL write daily mode output to a time-series file at `output/microclimate/daily_{region_name}_{start_date}_{end_date}.parquet` (default) or `.csv` if `--output-format csv` is specified. Each row represents one ZIP code on one date, with columns: `date`, `zip_code`, `microclimate_id`, `hrrr_raw_temp_f`, `hrrr_adjusted_temp_f`, `daily_effective_hdd`, `bias_correction_f`, plus the six altitude-level wind columns from Requirement 17.
+7. WHEN the `--mode normals` CLI argument is specified (or no `--mode` argument is given), THE Pipeline SHALL operate in the existing normals mode using PRISM as the atmospheric base, producing annual `effective_hdd` per ZIP code. The normals mode behavior is unchanged from Requirements 1–15.
+8. IF `--mode daily` is specified without a date range (`--start-date`/`--end-date` or `--month`), THEN THE Pipeline SHALL raise a `ValueError` stating that daily mode requires a date range or month.
+9. THE Pipeline SHALL support running both modes sequentially in a single invocation via `--mode both`, which first runs normals mode to produce `terrain_attributes.csv`, then runs daily mode for the specified date range (or month), reusing the terrain corrections already computed in the normals pass.
+10. THE Pipeline SHALL document the supported date ranges in the CLI help text and README: HRRR daily mode supports dates from 2014-07-30 to present; PRISM normals mode uses the 1991–2020 climate normal period and does not require a date range.

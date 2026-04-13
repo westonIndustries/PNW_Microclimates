@@ -105,15 +105,16 @@ STATION_COORDS: dict[str, tuple[float, float]] = {
 }
 
 # ---------------------------------------------------------------------------
-# District → weather station map
+# ZIP code → weather station map
 # Populated at runtime from the region registry CSV (see load_region_registry).
+# Each ZIP code is assigned to its nearest NOAA station by haversine distance.
 # ---------------------------------------------------------------------------
 
-DISTRICT_WEATHER_MAP: dict[str, str] = {}
+ZIPCODE_STATION_MAP: dict[str, str] = {}
 
 # ---------------------------------------------------------------------------
-# Gorge districts — Columbia River Gorge stations that receive a wind
+# Gorge stations — Columbia River Gorge stations that receive a wind
 # infiltration floor of 1.15 due to the high-wind corridor effect
 # ---------------------------------------------------------------------------
 
-GORGE_DISTRICTS: list[str] = ["KDLS", "KTTD"]
+GORGE_STATIONS: list[str] = ["KDLS", "KTTD"]
