@@ -11,7 +11,7 @@ The Regional Microclimate Modeling Engine is a Python pipeline that converts geo
 
 **Inputs (daily mode, additional)**: HRRR 3 km GRIB2 analysis files from AWS S3 (`s3://noaa-hrrr-bdp-pds/`) or Google Cloud, providing hourly 2 m temperature, 10 m wind, and pressure-level wind fields at 22 levels (1000–500 mb).
 
-**Output (normals mode)**: `terrain_attributes.csv` — one row per ZIP code/block group, all corrections pre-computed, joined to downstream models on `microclimate_id` and `zip_code` at runtime. No raster sampling occurs during downstream model runs.
+**Output (normals mode)**: `terrain_attributes.csv` — multiple rows per ZIP code/block group: one row per microclimate cell (e.g., 500m × 500m grid cell) plus one aggregate row per ZIP code. All corrections pre-computed at cell level and aggregated to ZIP level, joined to downstream models on `microclimate_id` and `zip_code` at runtime. No raster sampling occurs during downstream model runs.
 
 **Output (daily mode)**: `daily_{region}_{start}_{end}.parquet` (or `.csv`) — one row per ZIP code per date, with daily `effective_hdd`, bias-corrected temperature, and wind speed/direction at six GA altitude levels (surface, 3k, 6k, 9k, 12k, 18k ft AGL).
 
@@ -34,9 +34,12 @@ Step 5  → terrain_analysis        (aspect, slope, TPI, wind shadow, lapse rate
 Step 6  → thermal_logic           (albedo, solar aspect, UHI offset, Landsat calibration)
 Step 7  → wind_steering           (stagnation multiplier, infiltration multiplier)
 Step 8  → anthropogenic_load      (road buffers, heat flux)
-Step 9  → combine_corrections     (effective_hdd per grid cell)
-Step 10 → weather adjustment      (optional: actual/normal HDD ratio)
-Step 11 → write_terrain_attributes (aggregate to ZIP code, write CSV)
+Step 9  → create_cells            (divide ZIP codes into 500m × 500m microclimate cells)
+Step 10 → combine_corrections_cells (effective_hdd per cell, mean of 1m pixels within cell)
+Step 11 → aggregate_cells_to_zip  (ZIP-code aggregates: mean, min, max, std of cells)
+Step 12 → weather adjustment      (optional: actual/normal HDD ratio)
+Step 13 → write_terrain_attributes (cell-level + ZIP-level rows, write CSV)
+Step 14 → write_maps              (interactive Leaflet maps showing cells)
 ```
 
 ### Daily Mode Pipeline (new)
@@ -77,7 +80,9 @@ src/
 │   ├── thermal_logic.py           # Surface albedo, solar aspect multiplier, UHI offset, Landsat calibration
 │   ├── wind_steering.py           # TPI + wind speed → stagnation multiplier, infiltration multiplier
 │   ├── anthropogenic_load.py      # Buffer roads by AADT, compute heat flux W/m², convert to temp offset
-│   ├── combine_corrections.py     # Combine all corrections into effective_hdd per grid cell
+│   ├── create_cells.py            # Divide ZIP codes into 500m × 500m microclimate cells
+│   ├── combine_corrections_cells.py # Compute effective_hdd per cell (mean of 1m pixels within cell)
+│   ├── aggregate_cells_to_zip.py  # Aggregate cells to ZIP level: mean, min, max, std
 │   ├── bias_correct_hrrr.py       # Additive bias correction: hrrr_adjusted = hrrr_raw + (prism_normal − hrrr_climatology)
 │   ├── wind_profile_extractor.py  # Extract multi-altitude wind from HRRR pressure levels → 6 GA altitudes
 │   └── daily_combine.py           # Apply terrain corrections to HRRR daily base → daily effective_hdd
@@ -85,7 +90,8 @@ src/
 │   ├── qa_checks.py               # Range checks, directional sanity, flag implausible values
 │   └── billing_comparison.py      # Compare effective_hdd against billing-derived therms per customer
 └── output/
-    ├── write_terrain_attributes.py  # Aggregate 1m grid to ZIP code/block group, assign microclimate_id, write CSV
+    ├── write_terrain_attributes.py  # Write cell-level + ZIP-level rows to CSV with microclimate_id
+    ├── write_maps.py                # Generate interactive Leaflet HTML maps showing cells
     └── write_daily_output.py        # Write daily time-series Parquet/CSV with effective_hdd + wind profiles
 ```
 
@@ -265,8 +271,11 @@ Full column definitions for `terrain_attributes.csv`. One row per ZIP code or Ce
 
 | Column | Type | Description |
 |--------|------|-------------|
-| `microclimate_id` | string | Unique identifier: `{region_code}_{zip_code}_{base_station}` (e.g., `R1_97201_KPDX`) |
+| `microclimate_id` | string | Unique identifier: `{region_code}_{zip_code}_{base_station}_cell_{cell_id}` for cells (e.g., `R1_97201_KPDX_cell_001`) or `{region_code}_{zip_code}_{base_station}_aggregate` for ZIP-code aggregates (e.g., `R1_97201_KPDX_aggregate`). Primary key. |
 | `zip_code` | string | US ZIP code — primary geographic key for joins to external datasets |
+| `cell_id` | string | Unique cell identifier within ZIP code: `cell_001`, `cell_002`, etc., or `"aggregate"` for ZIP-code aggregate rows |
+| `cell_type` | string | Cell classification: `urban`, `suburban`, `rural`, `valley`, `ridge`, `gorge`, or `null` for aggregate rows |
+| `cell_area_sqm` | float64 | Area of the microclimate cell in square meters; `null` for aggregate rows |
 | `geo_id` | string | ZIP code or Census block group GEOID |
 | `region` | string | Processing region name (e.g., `region_1`) |
 | `base_station` | string | NOAA weather station ICAO code (e.g., `KPDX`) |
@@ -285,7 +294,11 @@ Full column definitions for `terrain_attributes.csv`. One row per ZIP code or Ce
 | `hdd_terrain_mult` | float64 | HDD multiplier from terrain position (windward/leeward/valley/ridge) |
 | `hdd_elev_addition` | float64 | HDD addition from elevation lapse rate above base station (°F-days) |
 | `hdd_uhi_reduction` | float64 | HDD reduction from UHI effect (positive value = reduction) |
-| `effective_hdd` | float64 | Final adjusted annual HDD for simulation: `base_hdd × terrain_mult + elev_addition − uhi_reduction − traffic_reduction` |
+| `effective_hdd` | float64 | Final adjusted annual HDD for simulation: `base_hdd × terrain_mult + elev_addition − uhi_reduction − traffic_reduction`. For cell rows: computed from mean of 1m pixels within cell. For aggregate rows: mean of all cells in ZIP code. |
+| `num_cells` | int | Number of cells in the ZIP code; `null` for cell-level rows |
+| `cell_hdd_min` | float64 | Minimum `effective_hdd` across all cells in the ZIP code; `null` for cell-level rows |
+| `cell_hdd_max` | float64 | Maximum `effective_hdd` across all cells in the ZIP code; `null` for cell-level rows |
+| `cell_hdd_std` | float64 | Standard deviation of `effective_hdd` across all cells in the ZIP code; `null` for cell-level rows |
 | `run_date` | string | ISO 8601 timestamp of pipeline execution (e.g., `2025-01-15T14:32:00`) |
 | `pipeline_version` | string | Semantic version of the pipeline (e.g., `1.0.0`) |
 | `lidar_vintage` | int | Year of the LiDAR DEM used (e.g., `2021`) |

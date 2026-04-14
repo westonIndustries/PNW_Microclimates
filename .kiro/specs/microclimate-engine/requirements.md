@@ -2,11 +2,11 @@
 
 ## Introduction
 
-The **Regional Microclimate Modeling Engine** is a Python processing pipeline that converts geographic regions in Oregon and Washington into high-resolution microclimate maps at the ZIP code level. It integrates terrain data, surface imperviousness, atmospheric temperature normals, wind observations, and traffic-derived heat flux to produce an `effective_hdd` value for every ZIP code or Census block group. This value replaces the single airport-station HDD used in conventional forecasting, capturing sub-ZIP-code variation driven by terrain position, urban heat island effects, wind exposure, and anthropogenic heat load.
+The **Regional Microclimate Modeling Engine** is a Python processing pipeline that converts geographic regions in Oregon and Washington into high-resolution microclimate maps at the sub-ZIP-code level. It integrates terrain data, surface imperviousness, atmospheric temperature normals, wind observations, and traffic-derived heat flux to produce granular `effective_hdd` values for microclimate cells within each ZIP code or Census block group. This cell-level granularity replaces the single airport-station HDD used in conventional forecasting, capturing sub-ZIP-code variation driven by terrain position, urban heat island effects, wind exposure, and anthropogenic heat load.
 
-**Primary users**: Forecasting analysts and data engineers who maintain and run analysis pipelines. Secondary users: regulatory staff reviewing load forecasts who need to understand how weather normalization is applied at sub-regional scale.
+**Primary users**: Forecasting analysts and data engineers who maintain and run analysis pipelines. Secondary users: regulatory staff reviewing load forecasts who need to understand how weather normalization is applied at sub-regional scale. Tertiary users: infrastructure planners and weatherization program managers who need to identify neighborhoods with highest heating demand.
 
-**Scope**: The pipeline covers the full Oregon and Washington extent as a single processing region (`region_1`). It produces a pre-computed lookup table (`terrain_attributes.csv`) that downstream models can join at runtime. The pipeline does not perform real-time raster sampling during model runs.
+**Scope**: The pipeline covers the full Oregon and Washington extent as a single processing region (`region_1`). It produces a pre-computed lookup table (`terrain_attributes.csv`) with multiple rows per ZIP code (one per microclimate cell, plus one ZIP-code aggregate). Downstream models can join on individual cells for granular forecasting, or on ZIP-code aggregates for coarser analysis. The pipeline does not perform real-time raster sampling during model runs.
 
 ---
 
@@ -14,8 +14,10 @@ The **Regional Microclimate Modeling Engine** is a Python processing pipeline th
 
 | Term | Definition |
 |------|-----------|
-| **microclimate_id** | Unique string identifier for a microclimate area, formatted as `{region_code}_{zip_code}_{base_station}` (e.g., `R1_97201_KPDX`). Primary key in `terrain_attributes.csv`. |
-| **effective_hdd** | Adjusted annual heating degree days (base 65°F) for a ZIP code or block group, incorporating terrain, surface, wind, and traffic corrections on top of the PRISM/NOAA atmospheric base. |
+| **microclimate_id** | Unique string identifier for a microclimate area, formatted as `{region_code}_{zip_code}_{base_station}_cell_{cell_id}` for cells (e.g., `R1_97201_KPDX_cell_001`) or `{region_code}_{zip_code}_{base_station}_aggregate` for ZIP-code aggregates (e.g., `R1_97201_KPDX_aggregate`). Primary key in `terrain_attributes.csv`. |
+| **microclimate_cell** | A granular geographic subdivision within a ZIP code (e.g., 500m × 500m grid cell) that represents a distinct microclimate zone. Each cell has its own `effective_hdd` value calculated by the formula. Multiple cells per ZIP code enable sub-ZIP-code granularity in forecasting. |
+| **cell_id** | Unique identifier for a microclimate cell within a ZIP code, formatted as `cell_001`, `cell_002`, etc. |
+| **effective_hdd** | Adjusted annual heating degree days (base 65°F) for a microclimate cell or ZIP code aggregate, incorporating terrain, surface, wind, and traffic corrections on top of the PRISM/NOAA atmospheric base. |
 | **TPI** | Topographic Position Index — the elevation at a point minus the mean elevation within a surrounding annulus (300–1,000 m radius). Negative TPI indicates a valley; positive TPI indicates a ridge. |
 | **UHI** | Urban Heat Island — the phenomenon where dense impervious surfaces (asphalt, rooftops) absorb solar radiation and re-emit it as heat, raising effective air temperatures 2–5°F above the rural baseline. |
 | **AADT** | Annual Average Daily Traffic — the total volume of vehicle traffic on a road segment divided by 365, used to compute anthropogenic heat flux from vehicle exhaust and friction. |
@@ -196,9 +198,76 @@ The **Regional Microclimate Modeling Engine** is a Python processing pipeline th
 
 ---
 
-### Requirement 11: Output Schema
+### Requirement 11: Granular Microclimate Cells
 
-**User Story**: As a data engineer, I want the pipeline to write a `terrain_attributes.csv` with a well-defined schema including `microclimate_id`, `zip_code`, and all correction columns, so that downstream models can join on a stable key without re-sampling rasters.
+**User Story**: As a forecasting analyst, I want the pipeline to divide each ZIP code into granular microclimate cells (e.g., 500m × 500m grid cells), compute cell-level `effective_hdd` for each cell, and output multiple rows per ZIP code, so that downstream models can perform sub-ZIP-code granular forecasting and identify neighborhoods with highest heating demand.
+
+**Acceptance Criteria**:
+
+1. The pipeline creates a regular grid of microclimate cells within each ZIP code boundary. Cell size is configurable (default: 500m × 500m).
+2. Each cell is assigned a unique `cell_id` within the ZIP code, formatted as `cell_001`, `cell_002`, etc.
+3. Each cell is optionally classified by dominant characteristics (e.g., `urban`, `suburban`, `rural`, `valley`, `ridge`, `gorge`).
+4. For each cell, the pipeline computes `effective_hdd` using the formula:
+   ```
+   cell_effective_hdd = base_hdd × terrain_multiplier
+                      + elevation_hdd_addition
+                      − uhi_hdd_reduction
+                      − traffic_heat_hdd_reduction
+   ```
+   where each component is the **mean value for all 1-meter grid cells within that microclimate cell**.
+5. Each cell gets its own row in `terrain_attributes.csv` with `microclimate_id = {region_code}_{zip_code}_{base_station}_cell_{cell_id}`.
+6. All intermediate correction columns are retained per cell (elevation, wind speed, imperviousness, albedo, UHI offset, road heat flux, etc.).
+7. Cell area (`cell_area_sqm`) is included in the output.
+8. Cells with fewer than 10 valid 1-meter grid cells are flagged in QA as potentially unreliable.
+
+---
+
+### Requirement 12: ZIP-Code-Level Aggregates
+
+**User Story**: As a data engineer, I want the pipeline to compute ZIP-code-level aggregates by averaging all cells within each ZIP code, so that existing models can work unchanged while new models can opt into granular cell-level data.
+
+**Acceptance Criteria**:
+
+1. For each ZIP code, the pipeline computes aggregate values by averaging all cells:
+   - `zip_effective_hdd = mean(cell_effective_hdd for all cells in ZIP)`
+   - `zip_mean_elevation = mean(cell_mean_elevation for all cells)`
+   - `zip_mean_wind = mean(cell_mean_wind for all cells)`
+   - etc.
+2. The pipeline computes variation statistics across cells:
+   - `cell_hdd_min = min(cell_effective_hdd for all cells)`
+   - `cell_hdd_max = max(cell_effective_hdd for all cells)`
+   - `cell_hdd_std = std(cell_effective_hdd for all cells)`
+   - `num_cells = count of cells in ZIP`
+3. One aggregate row per ZIP code is written to `terrain_attributes.csv` with `microclimate_id = {region_code}_{zip_code}_{base_station}_aggregate` and `cell_id = "aggregate"`.
+4. The aggregate row includes all mean correction columns plus variation statistics.
+5. Verification check: ZIP-code aggregate `effective_hdd` must equal mean of all cells (within floating-point tolerance).
+
+---
+
+### Requirement 13: Interactive Cell-Based Maps
+
+**User Story**: As a stakeholder, I want interactive Leaflet HTML maps that visualize microclimate cells at neighborhood scale (not just ZIP codes), so that I can explore microclimate variation and identify areas for infrastructure planning and weatherization programs.
+
+**Acceptance Criteria**:
+
+1. The pipeline generates multiple interactive Leaflet HTML maps showing:
+   - **Cell-level effective HDD choropleth**: Each cell colored by its `effective_hdd` value using a color scale (e.g., blue for high HDD, red for low HDD)
+   - **ZIP-code overlay**: Thin gray lines showing ZIP code boundaries for geographic reference
+   - **Terrain position layer**: Cells colored by terrain type (windward, leeward, valley, ridge)
+   - **UHI effect layer**: Cells colored by `uhi_offset_f` (urban heat island offset)
+   - **Wind infiltration layer**: Cells colored by `wind_infiltration_mult`
+   - **Traffic heat layer**: Cells colored by `road_heat_flux_wm2`
+2. Each map includes a **layer control panel** allowing users to toggle between different correction layers and show/hide ZIP code and cell boundaries.
+3. **Cell info popup**: Clicking any cell displays a popup with: `cell_id`, `cell_type`, `effective_hdd`, `terrain_position`, `mean_elevation_ft`, `mean_wind_ms`, `mean_impervious_pct`, `uhi_offset_f`, `road_heat_flux_wm2`, `cell_area_sqm`.
+4. Maps support **zoom and pan** to explore specific neighborhoods at high detail.
+5. Maps are self-contained HTML files with all GeoJSON data inlined (no external dependencies).
+6. Maps are written to `output/microclimate/` with filenames: `map_effective_hdd.html`, `map_terrain_position.html`, `map_uhi_effect.html`, `map_wind_infiltration.html`, `map_traffic_heat.html`.
+
+---
+
+### Requirement 14: Output Schema
+
+**User Story**: As a data engineer, I want the pipeline to write a `terrain_attributes.csv` with a well-defined schema including `microclimate_id`, `zip_code`, `cell_id`, and all correction columns, so that downstream models can join on a stable key without re-sampling rasters.
 
 **Acceptance Criteria**:
 
@@ -210,7 +279,7 @@ The **Regional Microclimate Modeling Engine** is a Python processing pipeline th
 
 ---
 
-### Requirement 12: Output Versioning
+### Requirement 15: Output Versioning
 
 **User Story**: As a data engineer, I want every row in `terrain_attributes.csv` to carry metadata about when it was produced and which data vintages were used, so that stale rows can be identified after data updates.
 
@@ -224,7 +293,7 @@ The **Regional Microclimate Modeling Engine** is a Python processing pipeline th
 
 ---
 
-### Requirement 13: QA and Validation
+### Requirement 16: QA and Validation
 
 **User Story**: As a forecasting analyst, I want the pipeline to run automated range checks and directional sanity checks on the output, and produce an HTML/MD QA report, so that implausible values are caught before the CSV enters the simulation pipeline.
 
@@ -238,7 +307,7 @@ The **Regional Microclimate Modeling Engine** is a Python processing pipeline th
 
 ---
 
-### Requirement 14: Weather Adjustment
+### Requirement 17: Weather Adjustment
 
 **User Story**: As a forecasting analyst, I want an optional weather adjustment step that scales `effective_hdd` by the ratio of actual to normal HDD for a specific historical year, so that calibration runs reflect observed weather rather than climate normals.
 
@@ -253,7 +322,7 @@ The **Regional Microclimate Modeling Engine** is a Python processing pipeline th
 
 ---
 
-### Requirement 15: Pipeline Re-run Cadence
+### Requirement 18: Pipeline Re-run Cadence
 
 **User Story**: As a data engineer, I want documented triggers for when the terrain attributes pipeline must be re-run, so that the simulation pipeline is never using stale microclimate data without awareness.
 
@@ -271,7 +340,7 @@ The **Regional Microclimate Modeling Engine** is a Python processing pipeline th
 
 ---
 
-### Requirement 16: HRRR Data Ingestion
+### Requirement 19: HRRR Data Ingestion
 
 **User Story**: As a data engineer, I want the pipeline to download and cache HRRR 3 km GRIB2 analysis files from AWS S3 or Google Cloud for a specified date range, so that the daily mode has access to hourly atmospheric fields (temperature, wind, humidity) at high spatial resolution across CONUS.
 
@@ -289,7 +358,7 @@ The **Regional Microclimate Modeling Engine** is a Python processing pipeline th
 
 ---
 
-### Requirement 17: Multi-Altitude Wind Profiles
+### Requirement 20: Multi-Altitude Wind Profiles
 
 **User Story**: As a forecasting analyst supporting GA flight planning and drone operations, I want the pipeline to extract wind speed and direction at standard GA flight altitudes below 18,000 ft from HRRR pressure-level data, so that pilots and UAS operators can assess wind conditions at their planned cruise altitude for each ZIP code.
 
@@ -305,7 +374,7 @@ The **Regional Microclimate Modeling Engine** is a Python processing pipeline th
 
 ---
 
-### Requirement 18: Daily Microclimate Mode
+### Requirement 21: Daily Microclimate Mode
 
 **User Story**: As a forecasting analyst, I want a daily operating mode that uses HRRR as the atmospheric base (bias-corrected against PRISM climatology) and applies the same terrain corrections as the normals mode, so that I can produce daily `effective_hdd` and multi-altitude wind profiles per ZIP code for historical analysis and short-range forecasting.
 
@@ -324,7 +393,7 @@ The **Regional Microclimate Modeling Engine** is a Python processing pipeline th
 
 ---
 
-### Requirement 19: Altitude-Level Microclimate Profiles
+### Requirement 22: Altitude-Level Microclimate Profiles
 
 **User Story**: As a GA pilot or aviation weather analyst, I want the pipeline to produce bias-corrected temperature and HDD at each altitude level where wind data is available (surface, 3,000, 6,000, 9,000, 12,000, and 18,000 ft AGL), so that I can assess the full atmospheric profile — not just wind — at my planned cruise altitude for each ZIP code.
 
@@ -339,7 +408,7 @@ The **Regional Microclimate Modeling Engine** is a Python processing pipeline th
 
 ---
 
-### Requirement 20: Surface Property Mask and Boundary Layer Modification
+### Requirement 23: Surface Property Mask and Boundary Layer Modification
 
 **User Story**: As a GA pilot or drone operator, I want the pipeline to account for surface roughness transitions (forest edges, water bodies, urban areas) when computing wind and temperature in the boundary layer (0–1,000 ft AGL), so that the low-altitude microclimate profiles reflect localized wind shear over forest edges and thermal subsidence over water bodies rather than treating the surface as uniform.
 
@@ -358,7 +427,7 @@ The **Regional Microclimate Modeling Engine** is a Python processing pipeline th
 
 ---
 
-### Requirement 21: Surface Physics Engine and Aviation Safety Cube
+### Requirement 24: Surface Physics Engine and Aviation Safety Cube
 
 **User Story**: As a GA pilot or aviation safety analyst, I want the pipeline to produce a 3D "Aviation Safety Cube" — a per-ZIP-code, per-altitude, per-day data structure that integrates NLCD-derived surface physics (roughness, displacement height, albedo, TKE) with HRRR-downscaled atmospheric fields — so that I can assess wind shear, turbulence, thermal hazards, and icing risk at any altitude from the surface through 18,000 ft AGL.
 
@@ -387,7 +456,7 @@ The **Regional Microclimate Modeling Engine** is a Python processing pipeline th
 
 ---
 
-### Requirement 22: Real-Time Data Daemon (Optional)
+### Requirement 25: Real-Time Data Daemon (Optional)
 
 **User Story**: As an aviation weather operations team, I want a persistent daemon process that automatically polls for new hourly HRRR analysis cycles, downscales them against pre-cached static terrain and surface features, and produces an updated Aviation Safety Cube within minutes of each HRRR release, so that pilots and dispatchers have near-real-time microclimate data without manual pipeline invocations.
 
@@ -404,7 +473,7 @@ The **Regional Microclimate Modeling Engine** is a Python processing pipeline th
 
 ---
 
-### Requirement 23: Hourly Microclimate Mode
+### Requirement 26: Hourly Microclimate Mode
 
 **User Story**: As a GA pilot or UAS operator planning a flight within the next few hours, I want per-hour microclimate profiles (not daily averages) so that I can see how conditions change through the day — morning inversions, afternoon convective turbulence, evening wind shifts — at each altitude level for my departure and destination ZIP codes.
 
