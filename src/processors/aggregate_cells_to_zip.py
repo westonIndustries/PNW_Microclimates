@@ -75,6 +75,8 @@ def aggregate_cells_to_zip(
         - mean_impervious_pct: mean across all cells
         - surface_albedo: mean across all cells
         - cell_effective_hdd: mean of all cell_effective_hdd values
+        - effective_hdd_jan through effective_hdd_dec: mean monthly HDD across cells (if present)
+        - effective_hdd_annual: sum of monthly HDD values (if monthly columns present)
         - num_cells: count of cells in the ZIP code
         - cell_hdd_min: minimum cell_effective_hdd
         - cell_hdd_max: maximum cell_effective_hdd
@@ -113,7 +115,14 @@ def aggregate_cells_to_zip(
         "mean_elevation_ft",
         "mean_impervious_pct",
         "surface_albedo",
+        "base_cdd",
+        "uhi_cdd_addition",
+        "traffic_cdd_addition",
     ]
+    
+    # Monthly HDD columns (if present)
+    month_names = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"]
+    monthly_hdd_cols = [f"effective_hdd_{month}" for month in month_names]
 
     # Compute aggregates
     num_cells = len(cells_df)
@@ -125,6 +134,18 @@ def aggregate_cells_to_zip(
     cell_hdd_max = cell_hdd_values.max() if len(cell_hdd_values) > 0 else np.nan
     cell_hdd_std = cell_hdd_values.std() if len(cell_hdd_values) > 1 else np.nan
 
+    # Compute statistics for cell_effective_cdd (if present)
+    zip_effective_cdd = np.nan
+    cell_cdd_min = np.nan
+    cell_cdd_max = np.nan
+    cell_cdd_std = np.nan
+    if "cell_effective_cdd" in cells_df.columns:
+        cell_cdd_values = cells_df["cell_effective_cdd"].dropna()
+        zip_effective_cdd = cell_cdd_values.mean() if len(cell_cdd_values) > 0 else np.nan
+        cell_cdd_min = cell_cdd_values.min() if len(cell_cdd_values) > 0 else np.nan
+        cell_cdd_max = cell_cdd_values.max() if len(cell_cdd_values) > 0 else np.nan
+        cell_cdd_std = cell_cdd_values.std() if len(cell_cdd_values) > 1 else np.nan
+
     # Compute means for all numeric correction columns
     agg_row = {
         "microclimate_id": f"{region_code}_{zip_code}_{base_station}_aggregate",
@@ -133,10 +154,14 @@ def aggregate_cells_to_zip(
         "cell_type": None,
         "cell_area_sqm": None,
         "cell_effective_hdd": zip_effective_hdd,
+        "cell_effective_cdd": zip_effective_cdd,
         "num_cells": num_cells,
         "cell_hdd_min": cell_hdd_min,
         "cell_hdd_max": cell_hdd_max,
         "cell_hdd_std": cell_hdd_std,
+        "cell_cdd_min": cell_cdd_min,
+        "cell_cdd_max": cell_cdd_max,
+        "cell_cdd_std": cell_cdd_std,
         "num_valid_pixels": int(cells_df["num_valid_pixels"].sum()),
     }
 
@@ -146,6 +171,22 @@ def aggregate_cells_to_zip(
             agg_row[col] = cells_df[col].mean()
         else:
             agg_row[col] = np.nan
+
+    # Add means for monthly HDD columns (if present)
+    for col in monthly_hdd_cols:
+        if col in cells_df.columns:
+            agg_row[col] = cells_df[col].mean()
+        else:
+            agg_row[col] = np.nan
+
+    # Compute annual effective HDD as sum of monthly values (if monthly columns present)
+    if any(col in cells_df.columns for col in monthly_hdd_cols):
+        monthly_values = [agg_row.get(col, np.nan) for col in monthly_hdd_cols]
+        valid_monthly = [v for v in monthly_values if not np.isnan(v)]
+        if valid_monthly:
+            agg_row["effective_hdd_annual"] = sum(valid_monthly)
+        else:
+            agg_row["effective_hdd_annual"] = np.nan
 
     # Copy metadata columns from the first cell row
     metadata_cols = ["run_date", "pipeline_version", "lidar_vintage", "nlcd_vintage", "prism_period"]
@@ -159,7 +200,8 @@ def aggregate_cells_to_zip(
     logger.info(
         f"Aggregated {num_cells} cells for ZIP {zip_code}. "
         f"Aggregate effective HDD: {zip_effective_hdd:.1f} HDD "
-        f"(range: {cell_hdd_min:.1f}–{cell_hdd_max:.1f}, std: {cell_hdd_std:.1f})"
+        f"(range: {cell_hdd_min:.1f}–{cell_hdd_max:.1f}, std: {cell_hdd_std:.1f}), "
+        f"CDD: {zip_effective_cdd:.1f} (range: {cell_cdd_min:.1f}–{cell_cdd_max:.1f})"
     )
 
     return agg_df

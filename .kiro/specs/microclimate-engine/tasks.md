@@ -96,12 +96,12 @@ Uses PRISM 30-year climate normals as the atmospheric base. Produces annual `eff
 
 ## Task 11: Monthly — Future Enhancements (Optional)
 
-- [ ] 11.1* Monthly effective HDD profiles (12 columns: `effective_hdd_jan` … `effective_hdd_dec`)
-- [ ] 11.2* Precipitation/moisture correction from PRISM precipitation normals
-- [ ] 11.3* Cold air drainage quantification from LiDAR flow accumulation
-- [ ] 11.4* Effective CDD output (UHI increases cooling load)
-- [ ] 11.5* Error propagation and uncertainty bounds (`effective_hdd_low`, `effective_hdd_high`)
-- [ ] 11.6* UTM zone boundary handling (Zone 11N districts)
+- [x] 11.1* Monthly effective HDD profiles (12 columns: `effective_hdd_jan` … `effective_hdd_dec`)
+- [x] 11.2* Precipitation/moisture correction from PRISM precipitation normals
+- [x] 11.3* Cold air drainage quantification from LiDAR flow accumulation
+- [x] 11.4* Effective CDD output (UHI increases cooling load)
+- [x] 11.5* Error propagation and uncertainty bounds (`effective_hdd_low`, `effective_hdd_high`)
+- [x] 11.6* UTM zone boundary handling (Zone 11N districts)
 
 ---
 

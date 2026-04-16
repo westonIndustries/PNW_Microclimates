@@ -716,6 +716,7 @@ def run_all_qa_checks(
     results["cell_reliability"] = check_cell_reliability(terrain_df)
     results["hard_failures"] = check_hard_failures(terrain_df)
     results["billing_comparison"] = check_billing_comparison(terrain_df, billing_csv_path)
+    results["monthly_hdd_profiles"] = check_monthly_hdd_profiles(terrain_df)
 
     # Log summary
     num_passed = sum(1 for r in results.values() if r.passed)
@@ -736,3 +737,111 @@ def run_all_qa_checks(
                 logger.warning(f"    ... and {len(result.issues) - 5} more issues")
 
     return results
+
+
+
+def check_monthly_hdd_profiles(
+    terrain_df: pd.DataFrame,
+    monthly_hdd_min: float = 0.0,
+    monthly_hdd_max: float = 1000.0,
+    annual_tolerance: float = 0.01,
+) -> QACheckResult:
+    """Check monthly HDD profiles for consistency and plausibility.
+
+    Verifies that:
+    - All monthly HDD values are non-negative
+    - All monthly HDD values are within reasonable range (0-1000 for PNW)
+    - Sum of 12 monthly HDD values approximately equals annual HDD (within tolerance)
+
+    Parameters
+    ----------
+    terrain_df : pd.DataFrame
+        DataFrame with terrain attributes. Must contain monthly HDD columns
+        (effective_hdd_jan through effective_hdd_dec) and effective_hdd_annual.
+    monthly_hdd_min : float, optional
+        Minimum plausible monthly HDD (default 0.0).
+    monthly_hdd_max : float, optional
+        Maximum plausible monthly HDD (default 1000.0).
+    annual_tolerance : float, optional
+        Tolerance for sum of monthly vs annual HDD as fraction (default 0.01 = 1%).
+
+    Returns
+    -------
+    QACheckResult
+        Result object with check details.
+    """
+    issues = []
+    month_names = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"]
+    monthly_cols = [f"effective_hdd_{month}" for month in month_names]
+
+    # Check if monthly columns exist
+    if not any(col in terrain_df.columns for col in monthly_cols):
+        return QACheckResult(
+            check_name="Monthly HDD Profiles",
+            passed=True,
+            num_issues=0,
+            issues=["Skipped: no monthly HDD columns found"],
+            severity="info",
+        )
+
+    # Check 1: All monthly values are non-negative
+    for col in monthly_cols:
+        if col in terrain_df.columns:
+            negative_rows = terrain_df[terrain_df[col] < monthly_hdd_min]
+            if len(negative_rows) > 0:
+                for idx, row in negative_rows.iterrows():
+                    zip_code = row["zip_code"]
+                    cell_id = row["cell_id"]
+                    value = row[col]
+                    issues.append(
+                        f"ZIP {zip_code} {cell_id}: {col}={value:.1f} is negative"
+                    )
+
+    # Check 2: All monthly values are within reasonable range
+    for col in monthly_cols:
+        if col in terrain_df.columns:
+            out_of_range = terrain_df[
+                (terrain_df[col] < monthly_hdd_min) | (terrain_df[col] > monthly_hdd_max)
+            ]
+            if len(out_of_range) > 0:
+                for idx, row in out_of_range.iterrows():
+                    zip_code = row["zip_code"]
+                    cell_id = row["cell_id"]
+                    value = row[col]
+                    issues.append(
+                        f"ZIP {zip_code} {cell_id}: {col}={value:.1f} outside range [{monthly_hdd_min}, {monthly_hdd_max}]"
+                    )
+
+    # Check 3: Sum of monthly HDD ≈ annual HDD (if annual column exists)
+    if "effective_hdd_annual" in terrain_df.columns:
+        for idx, row in terrain_df.iterrows():
+            # Compute sum of monthly values
+            monthly_values = [row.get(col, np.nan) for col in monthly_cols]
+            valid_monthly = [v for v in monthly_values if not np.isnan(v)]
+
+            if len(valid_monthly) == 12:  # Only check if all 12 months present
+                sum_monthly = sum(valid_monthly)
+                annual = row["effective_hdd_annual"]
+
+                if not np.isnan(annual) and annual > 0:
+                    tolerance = annual * annual_tolerance
+                    diff = abs(sum_monthly - annual)
+
+                    if diff > tolerance:
+                        zip_code = row["zip_code"]
+                        cell_id = row["cell_id"]
+                        issues.append(
+                            f"ZIP {zip_code} {cell_id}: sum of monthly HDD ({sum_monthly:.1f}) "
+                            f"differs from annual ({annual:.1f}) by {diff:.1f} (tolerance={tolerance:.1f})"
+                        )
+
+    passed = len(issues) == 0
+    severity = "warning" if not passed else "info"
+
+    return QACheckResult(
+        check_name="Monthly HDD Profiles",
+        passed=passed,
+        num_issues=len(issues),
+        issues=issues,
+        severity=severity,
+    )

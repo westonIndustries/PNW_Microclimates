@@ -38,8 +38,10 @@ TARGET_CRS = "EPSG:26910"  # NAD83 / UTM Zone 10N — covers OR and most of WA
 
 SOLAR_IRRADIANCE_WM2 = 200          # W/m² — representative annual mean for PNW
 LAPSE_RATE_HDD_PER_1000FT = 630     # HDD increase per 1,000 ft elevation gain
+LAPSE_RATE_CDD_PER_1000FT = 630     # CDD increase per 1,000 ft elevation gain (same magnitude as HDD)
 PREVAILING_WIND_DEG = 225            # Degrees — dominant SW Pacific storm track
 HDD_PER_DEGREE_F = 180              # Annual HDD per 1°F mean temperature shift
+CDD_PER_DEGREE_F = 180              # Annual CDD per 1°F mean temperature shift (same as HDD)
 
 # ---------------------------------------------------------------------------
 # Microclimate cell constants

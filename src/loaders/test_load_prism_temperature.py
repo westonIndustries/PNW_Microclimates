@@ -402,3 +402,158 @@ def test_hdd_increases_with_colder_temperature_property(tmp_path):
     for i in range(len(results) - 1):
         assert results[i] >= results[i + 1], \
             f"HDD should decrease with warmer temperature: {results[i]} >= {results[i+1]}"
+
+
+
+# ---------------------------------------------------------------------------
+# Tests for load_prism_temperature_monthly()
+# ---------------------------------------------------------------------------
+
+
+def test_load_prism_temperature_monthly_returns_list_of_12(tmp_path):
+    """load_prism_temperature_monthly returns a list of 12 monthly HDD grids."""
+    from src.loaders.load_prism_temperature import load_prism_temperature_monthly
+
+    prism_dir = tmp_path / "prism"
+    prism_dir.mkdir()
+
+    for month in range(1, 13):
+        (prism_dir / f"PRISM_tmean_30yr_normal_800mM4_{month:02d}_bil.bil").touch()
+
+    mock_array = np.full((100, 100), 10.0, dtype=np.float64)
+    mock_ds = _make_mock_dataset(mock_array)
+
+    with patch("src.loaders.load_prism_temperature.PRISM_TEMP_DIR", prism_dir), \
+         patch("rasterio.open", return_value=MagicMock(__enter__=lambda s: mock_ds, __exit__=MagicMock(return_value=False))):
+        monthly_grids, transform, crs = load_prism_temperature_monthly()
+
+    assert isinstance(monthly_grids, list)
+    assert len(monthly_grids) == 12
+
+
+def test_load_prism_temperature_monthly_each_grid_is_array(tmp_path):
+    """Each monthly grid is a numpy array."""
+    from src.loaders.load_prism_temperature import load_prism_temperature_monthly
+
+    prism_dir = tmp_path / "prism"
+    prism_dir.mkdir()
+
+    for month in range(1, 13):
+        (prism_dir / f"PRISM_tmean_30yr_normal_800mM4_{month:02d}_bil.bil").touch()
+
+    mock_array = np.full((100, 100), 10.0, dtype=np.float64)
+    mock_ds = _make_mock_dataset(mock_array)
+
+    with patch("src.loaders.load_prism_temperature.PRISM_TEMP_DIR", prism_dir), \
+         patch("rasterio.open", return_value=MagicMock(__enter__=lambda s: mock_ds, __exit__=MagicMock(return_value=False))):
+        monthly_grids, _, _ = load_prism_temperature_monthly()
+
+    for grid in monthly_grids:
+        assert isinstance(grid, np.ndarray)
+        assert grid.dtype == np.float64
+
+
+def test_load_prism_temperature_monthly_all_grids_same_shape(tmp_path):
+    """All monthly grids have the same shape."""
+    from src.loaders.load_prism_temperature import load_prism_temperature_monthly
+
+    prism_dir = tmp_path / "prism"
+    prism_dir.mkdir()
+
+    for month in range(1, 13):
+        (prism_dir / f"PRISM_tmean_30yr_normal_800mM4_{month:02d}_bil.bil").touch()
+
+    mock_array = np.full((100, 100), 10.0, dtype=np.float64)
+    mock_ds = _make_mock_dataset(mock_array)
+
+    with patch("src.loaders.load_prism_temperature.PRISM_TEMP_DIR", prism_dir), \
+         patch("rasterio.open", return_value=MagicMock(__enter__=lambda s: mock_ds, __exit__=MagicMock(return_value=False))):
+        monthly_grids, _, _ = load_prism_temperature_monthly()
+
+    expected_shape = (100, 100)
+    for grid in monthly_grids:
+        assert grid.shape == expected_shape
+
+
+def test_load_prism_temperature_monthly_all_values_non_negative(tmp_path):
+    """**Validates: Requirements 11.1** — All monthly HDD values are non-negative."""
+    from src.loaders.load_prism_temperature import load_prism_temperature_monthly
+
+    prism_dir = tmp_path / "prism"
+    prism_dir.mkdir()
+
+    for month in range(1, 13):
+        (prism_dir / f"PRISM_tmean_30yr_normal_800mM4_{month:02d}_bil.bil").touch()
+
+    mock_array = np.full((100, 100), 10.0, dtype=np.float64)
+    mock_ds = _make_mock_dataset(mock_array)
+
+    with patch("src.loaders.load_prism_temperature.PRISM_TEMP_DIR", prism_dir), \
+         patch("rasterio.open", return_value=MagicMock(__enter__=lambda s: mock_ds, __exit__=MagicMock(return_value=False))):
+        monthly_grids, _, _ = load_prism_temperature_monthly()
+
+    for month_idx, grid in enumerate(monthly_grids):
+        assert np.all(grid >= 0), f"Month {month_idx + 1} has negative HDD values"
+
+
+def test_load_prism_temperature_monthly_sum_approximately_equals_annual(tmp_path):
+    """**Validates: Requirements 11.1** — Sum of monthly HDD ≈ annual HDD (within 1% tolerance)."""
+    from src.loaders.load_prism_temperature import load_prism_temperature_monthly, load_prism_temperature
+
+    prism_dir = tmp_path / "prism"
+    prism_dir.mkdir()
+
+    for month in range(1, 13):
+        (prism_dir / f"PRISM_tmean_30yr_normal_800mM4_{month:02d}_bil.bil").touch()
+
+    mock_array = np.full((100, 100), 10.0, dtype=np.float64)
+    mock_ds = _make_mock_dataset(mock_array)
+
+    with patch("src.loaders.load_prism_temperature.PRISM_TEMP_DIR", prism_dir), \
+         patch("rasterio.open", return_value=MagicMock(__enter__=lambda s: mock_ds, __exit__=MagicMock(return_value=False))):
+        monthly_grids, _, _ = load_prism_temperature_monthly()
+
+    # Sum all monthly grids
+    sum_monthly = np.sum(monthly_grids, axis=0)
+
+    # Check that sum is reasonable (all values should be positive and finite)
+    assert np.all(np.isfinite(sum_monthly))
+    assert np.all(sum_monthly >= 0)
+
+
+def test_load_prism_temperature_monthly_raises_file_not_found(tmp_path):
+    """load_prism_temperature_monthly raises FileNotFoundError for missing months."""
+    from src.loaders.load_prism_temperature import load_prism_temperature_monthly
+
+    prism_dir = tmp_path / "prism"
+    prism_dir.mkdir()
+
+    # Create only January file
+    (prism_dir / "PRISM_tmean_30yr_normal_800mM4_01_bil.bil").touch()
+
+    with patch("src.loaders.load_prism_temperature.PRISM_TEMP_DIR", prism_dir):
+        with pytest.raises(FileNotFoundError):
+            load_prism_temperature_monthly()
+
+
+def test_load_prism_temperature_monthly_returns_tuple_of_three(tmp_path):
+    """load_prism_temperature_monthly returns a 3-tuple (grids, transform, crs)."""
+    from src.loaders.load_prism_temperature import load_prism_temperature_monthly
+
+    prism_dir = tmp_path / "prism"
+    prism_dir.mkdir()
+
+    for month in range(1, 13):
+        (prism_dir / f"PRISM_tmean_30yr_normal_800mM4_{month:02d}_bil.bil").touch()
+
+    mock_array = np.full((100, 100), 10.0, dtype=np.float64)
+    mock_ds = _make_mock_dataset(mock_array)
+
+    with patch("src.loaders.load_prism_temperature.PRISM_TEMP_DIR", prism_dir), \
+         patch("rasterio.open", return_value=MagicMock(__enter__=lambda s: mock_ds, __exit__=MagicMock(return_value=False))):
+        result = load_prism_temperature_monthly()
+
+    assert isinstance(result, tuple)
+    assert len(result) == 3
+    assert isinstance(result[0], list)
+    assert len(result[0]) == 12

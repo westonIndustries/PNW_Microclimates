@@ -50,6 +50,10 @@ def load_prism_temperature() -> tuple[np.ndarray, rasterio.transform.Affine, ras
     ------
     FileNotFoundError
         If any of the 12 monthly PRISM files are missing, lists all missing months.
+    
+    Notes
+    -----
+    For monthly HDD profiles, use load_prism_temperature_monthly() instead.
     """
     prism_dir = PRISM_TEMP_DIR.resolve()
 
@@ -206,3 +210,85 @@ def _apply_station_bias_correction(
         annual_hdd_corrected = annual_hdd_raw
 
     return annual_hdd_corrected
+
+
+
+def load_prism_temperature_monthly() -> tuple[list[np.ndarray], rasterio.transform.Affine, rasterio.crs.CRS]:
+    """Load PRISM monthly temperature normals and compute bias-corrected monthly HDD grids.
+
+    Loads all 12 monthly mean temperature files from PRISM_TEMP_DIR, computes
+    monthly HDD contributions (monthly mean temp × days in month, base 65°F),
+    applies station bias correction to each month independently, and returns
+    a list of 12 monthly HDD grids.
+
+    Returns
+    -------
+    tuple[list[np.ndarray], rasterio.transform.Affine, rasterio.crs.CRS]
+        (monthly_hdd_grids, transform, crs) where monthly_hdd_grids is a list
+        of 12 float64 arrays (January through December) with bias-corrected
+        monthly HDD values in °F-days (base 65°F).
+
+    Raises
+    ------
+    FileNotFoundError
+        If any of the 12 monthly PRISM files are missing, lists all missing months.
+    
+    Notes
+    -----
+    Each month's HDD is computed independently using the same bias correction
+    approach as load_prism_temperature(). The sum of the 12 monthly grids
+    should approximately equal the annual HDD grid (within floating-point tolerance).
+    """
+    prism_dir = PRISM_TEMP_DIR.resolve()
+
+    # Check that all 12 monthly files exist
+    missing_months = []
+    monthly_files = []
+
+    for month in range(1, 13):
+        month_str = f"{month:02d}"
+        # Try both BIL and GeoTIFF extensions
+        bil_path = prism_dir / f"PRISM_tmean_30yr_normal_800mM4_{month_str}_bil.bil"
+        tif_path = prism_dir / f"PRISM_tmean_30yr_normal_800mM4_{month_str}.tif"
+
+        if bil_path.exists():
+            monthly_files.append(bil_path)
+        elif tif_path.exists():
+            monthly_files.append(tif_path)
+        else:
+            missing_months.append(month_str)
+
+    if missing_months:
+        raise FileNotFoundError(
+            f"Missing PRISM temperature files for months: {', '.join(missing_months)}. "
+            f"Expected files in {prism_dir}"
+        )
+
+    # Load monthly temperature data and compute HDD contributions
+    monthly_hdd_grids = []
+    transform = None
+    crs = None
+
+    for month_idx, file_path in enumerate(monthly_files):
+        with rasterio.open(file_path) as dataset:
+            # Temperature in Celsius
+            temp_c = dataset.read(1).astype(np.float64)
+            
+            # Store transform and CRS from first file
+            if transform is None:
+                transform = dataset.transform
+                crs = dataset.crs
+
+            # Convert to Fahrenheit
+            temp_f = temp_c * 9 / 5 + 32
+
+            # Compute HDD contribution for this month
+            # HDD = max(0, base_temp - mean_temp) * days_in_month
+            hdd_contribution = np.maximum(0, HDD_BASE_F - temp_f) * DAYS_IN_MONTH[month_idx]
+            
+            # Apply station bias correction to this month's HDD
+            hdd_corrected = _apply_station_bias_correction(hdd_contribution, transform, crs)
+            
+            monthly_hdd_grids.append(hdd_corrected)
+
+    return monthly_hdd_grids, transform, crs

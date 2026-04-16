@@ -74,6 +74,7 @@ def write_terrain_attributes(
     # Ensure numeric columns are float64
     numeric_cols = [
         "effective_hdd",
+        "effective_cdd",
         "cell_area_sqm",
         "hdd_terrain_mult",
         "hdd_elev_addition",
@@ -184,10 +185,30 @@ def write_terrain_attributes(
         "hdd_elev_addition",
         "hdd_uhi_reduction",
         "effective_hdd",
+        "effective_hdd_jan",
+        "effective_hdd_feb",
+        "effective_hdd_mar",
+        "effective_hdd_apr",
+        "effective_hdd_may",
+        "effective_hdd_jun",
+        "effective_hdd_jul",
+        "effective_hdd_aug",
+        "effective_hdd_sep",
+        "effective_hdd_oct",
+        "effective_hdd_nov",
+        "effective_hdd_dec",
+        "effective_hdd_annual",
+        "base_cdd",
+        "uhi_cdd_addition",
+        "traffic_cdd_addition",
+        "effective_cdd",
         "num_cells",
         "cell_hdd_min",
         "cell_hdd_max",
         "cell_hdd_std",
+        "cell_cdd_min",
+        "cell_cdd_max",
+        "cell_cdd_std",
         "run_date",
         "pipeline_version",
         "lidar_vintage",
@@ -245,6 +266,16 @@ def validate_terrain_attributes(df: pd.DataFrame) -> List[str]:
                 f"{len(out_of_range)} rows have effective_hdd outside 2000-8000 range"
             )
 
+    # Check effective_cdd range (typically 0-2000 for PNW)
+    if "effective_cdd" in df.columns:
+        out_of_range_cdd = df[
+            (df["effective_cdd"] < 0) | (df["effective_cdd"] > 3000)
+        ]
+        if not out_of_range_cdd.empty:
+            issues.append(
+                f"{len(out_of_range_cdd)} rows have effective_cdd outside 0-3000 range"
+            )
+
     # Check for NaN in critical columns
     critical_cols = ["microclimate_id", "zip_code", "effective_hdd"]
     for col in critical_cols:
@@ -266,6 +297,21 @@ def validate_terrain_attributes(df: pd.DataFrame) -> List[str]:
                     issues.append(
                         f"ZIP {zip_code} aggregate HDD ({agg_hdd:.1f}) "
                         f"!= mean of cells ({cell_mean_hdd:.1f})"
+                    )
+
+    # Check CDD aggregate consistency (if CDD column present)
+    if "cell_id" in df.columns and "effective_cdd" in df.columns:
+        for zip_code in df[df["cell_id"] == "aggregate"]["zip_code"].unique():
+            agg_row = df[(df["zip_code"] == zip_code) & (df["cell_id"] == "aggregate")]
+            cell_rows = df[(df["zip_code"] == zip_code) & (df["cell_id"] != "aggregate")]
+
+            if not agg_row.empty and not cell_rows.empty:
+                agg_cdd = agg_row["effective_cdd"].iloc[0]
+                cell_mean_cdd = cell_rows["effective_cdd"].mean()
+                if not np.isclose(agg_cdd, cell_mean_cdd, rtol=1e-5):
+                    issues.append(
+                        f"ZIP {zip_code} aggregate CDD ({agg_cdd:.1f}) "
+                        f"!= mean of cells ({cell_mean_cdd:.1f})"
                     )
 
     return issues
