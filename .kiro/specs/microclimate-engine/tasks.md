@@ -34,7 +34,7 @@ All modes (monthly, daily, hourly, real-time) depend on these static data loader
 
 ## Task 4: Granular Microclimate Cells
 
-- [ ] 4.1 Add cell-related constants to `src/config.py`: `CELL_SIZE_M = 500` (cell size in meters), `MIN_CELL_PIXELS = 10` (minimum 1m pixels per cell for reliability)
+- [-] 4.1 Add cell-related constants to `src/config.py`: `CELL_SIZE_M = 500` (cell size in meters), `MIN_CELL_PIXELS = 10` (minimum 1m pixels per cell for reliability)
 - [ ] 4.2 Implement `src/processors/create_cells.py` — `create_microclimate_cells(zip_code_polygon, cell_size_m)` that: (a) creates a regular grid of cells within the ZIP code boundary; (b) assigns unique `cell_id` to each cell (`cell_001`, `cell_002`, etc.); (c) optionally classifies cells by dominant characteristics (urban, suburban, rural, valley, ridge, gorge); (d) returns a GeoDataFrame with cell geometries and IDs
 - [ ] 4.3 Implement `src/processors/combine_corrections_cells.py` — for each cell, compute `cell_effective_hdd` using the formula where each component is the **mean value for all 1-meter grid cells within that microclimate cell**; return a DataFrame with one row per cell per ZIP code
 

@@ -42,6 +42,13 @@ PREVAILING_WIND_DEG = 225            # Degrees — dominant SW Pacific storm tra
 HDD_PER_DEGREE_F = 180              # Annual HDD per 1°F mean temperature shift
 
 # ---------------------------------------------------------------------------
+# Microclimate cell constants
+# ---------------------------------------------------------------------------
+
+CELL_SIZE_M = 500                   # Cell size in meters (500m × 500m grid cells)
+MIN_CELL_PIXELS = 10                # Minimum 1m pixels per cell for reliability
+
+# ---------------------------------------------------------------------------
 # Pipeline metadata
 # ---------------------------------------------------------------------------
 
