@@ -2,8 +2,12 @@
 Tests for QA checks module.
 
 Tests the verification checks for aggregate HDD consistency, range checks,
-directional sanity, and cell reliability.
+directional sanity, cell reliability, hard failures, billing comparison,
+and report generation.
 """
+
+import tempfile
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -11,11 +15,16 @@ import pytest
 
 from src.validation.qa_checks import (
     AGGREGATE_HDD_TOLERANCE,
+    EFFECTIVE_HDD_HARD_MAX,
+    EFFECTIVE_HDD_HARD_MIN,
     EFFECTIVE_HDD_MAX,
     EFFECTIVE_HDD_MIN,
+    check_billing_comparison,
     check_cell_reliability,
     check_directional_sanity,
     check_effective_hdd_range,
+    check_hard_failures,
+    generate_qa_report,
     verify_aggregate_hdd_consistency,
 )
 
@@ -308,3 +317,222 @@ class TestCellReliability:
         assert not result.passed
         assert result.num_issues == 1
         assert "cell_001" in result.issues[0]
+
+
+class TestHardFailures:
+    """Tests for check_hard_failures function."""
+
+    def test_no_hard_failures(self):
+        """Test that valid HDD values pass."""
+        df = pd.DataFrame({
+            "zip_code": ["97201", "97202"],
+            "cell_id": ["cell_001", "cell_001"],
+            "cell_effective_hdd": [5000.0, 4500.0],
+        })
+
+        result = check_hard_failures(df)
+
+        assert result.passed
+        assert result.num_issues == 0
+        assert not result.is_hard_failure
+
+    def test_negative_hdd_flagged(self):
+        """Test that negative HDD is flagged as hard failure."""
+        df = pd.DataFrame({
+            "zip_code": ["97201"],
+            "cell_id": ["cell_001"],
+            "cell_effective_hdd": [-100.0],  # Negative HDD
+        })
+
+        result = check_hard_failures(df)
+
+        assert not result.passed
+        assert result.num_issues == 1
+        assert result.is_hard_failure
+        assert "outside hard limits" in result.issues[0]
+
+    def test_excessive_hdd_flagged(self):
+        """Test that HDD > 15,000 is flagged as hard failure."""
+        df = pd.DataFrame({
+            "zip_code": ["97201"],
+            "cell_id": ["cell_001"],
+            "cell_effective_hdd": [20000.0],  # Excessive HDD
+        })
+
+        result = check_hard_failures(df)
+
+        assert not result.passed
+        assert result.num_issues == 1
+        assert result.is_hard_failure
+        assert "outside hard limits" in result.issues[0]
+
+    def test_boundary_values(self):
+        """Test that boundary values are accepted."""
+        df = pd.DataFrame({
+            "zip_code": ["97201", "97202"],
+            "cell_id": ["cell_001", "cell_001"],
+            "cell_effective_hdd": [0.0, 15000.0],  # At boundaries
+        })
+
+        result = check_hard_failures(df)
+
+        assert result.passed
+        assert result.num_issues == 0
+
+
+class TestBillingComparison:
+    """Tests for check_billing_comparison function."""
+
+    def test_no_billing_csv_skipped(self):
+        """Test that check is skipped when no billing CSV provided."""
+        df = pd.DataFrame({
+            "zip_code": ["97201"],
+            "cell_id": ["aggregate"],
+            "cell_effective_hdd": [5000.0],
+        })
+
+        result = check_billing_comparison(df, billing_csv_path=None)
+
+        assert result.passed
+        assert "Skipped" in result.issues[0]
+
+    def test_missing_billing_csv_skipped(self):
+        """Test that check is skipped when billing CSV doesn't exist."""
+        df = pd.DataFrame({
+            "zip_code": ["97201"],
+            "cell_id": ["aggregate"],
+            "cell_effective_hdd": [5000.0],
+        })
+
+        result = check_billing_comparison(df, billing_csv_path=Path("/nonexistent/path.csv"))
+
+        assert result.passed
+        assert "not found" in result.issues[0]
+
+    def test_billing_comparison_within_threshold(self):
+        """Test that values within threshold pass."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create billing CSV
+            billing_path = Path(tmpdir) / "billing.csv"
+            billing_df = pd.DataFrame({
+                "zip_code": ["97201"],
+                "therms_per_customer": [5000.0],
+            })
+            billing_df.to_csv(billing_path, index=False)
+
+            # Create terrain data with matching zip_code dtype
+            terrain_df = pd.DataFrame({
+                "zip_code": ["97201"],
+                "cell_id": ["aggregate"],
+                "cell_effective_hdd": [5050.0],  # Within 15% of 5000
+            })
+
+            result = check_billing_comparison(terrain_df, billing_csv_path=billing_path)
+
+            assert result.passed
+            assert result.num_issues == 0
+
+    def test_billing_comparison_exceeds_threshold(self):
+        """Test that values exceeding threshold are flagged."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create billing CSV
+            billing_path = Path(tmpdir) / "billing.csv"
+            billing_df = pd.DataFrame({
+                "zip_code": ["97201"],
+                "therms_per_customer": [5000.0],
+            })
+            billing_df.to_csv(billing_path, index=False)
+
+            # Create terrain data with large divergence and matching dtype
+            terrain_df = pd.DataFrame({
+                "zip_code": ["97201"],
+                "cell_id": ["aggregate"],
+                "cell_effective_hdd": [6000.0],  # 20% divergence (exceeds 15%)
+            })
+
+            result = check_billing_comparison(terrain_df, billing_csv_path=billing_path)
+
+            assert not result.passed
+            assert result.num_issues == 1
+            assert "diverges from" in result.issues[0]
+
+
+class TestGenerateQAReport:
+    """Tests for generate_qa_report function."""
+
+    def test_report_generation(self):
+        """Test that HTML and MD reports are generated."""
+        from src.validation.qa_checks import QACheckResult
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir)
+
+            # Create mock QA results
+            qa_results = {
+                "test_check": QACheckResult(
+                    check_name="Test Check",
+                    passed=True,
+                    num_issues=0,
+                    issues=[],
+                    severity="info",
+                )
+            }
+
+            # Create terrain data
+            terrain_df = pd.DataFrame({
+                "zip_code": ["97201", "97201"],
+                "cell_id": ["cell_001", "aggregate"],
+                "cell_effective_hdd": [5000.0, 5000.0],
+            })
+
+            html_path, md_path = generate_qa_report(qa_results, terrain_df, output_dir)
+
+            # Verify files were created
+            assert html_path.exists()
+            assert md_path.exists()
+
+            # Verify HTML content
+            html_content = html_path.read_text()
+            assert "QA Report" in html_content
+            assert "Test Check" in html_content
+            assert "<!DOCTYPE html>" in html_content
+
+            # Verify MD content
+            md_content = md_path.read_text()
+            assert "QA Report" in md_content
+            assert "Test Check" in md_content
+            assert "# " in md_content  # Markdown headers
+
+    def test_report_includes_summary_stats(self):
+        """Test that reports include summary statistics."""
+        from src.validation.qa_checks import QACheckResult
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir)
+
+            qa_results = {
+                "test": QACheckResult(
+                    check_name="Test",
+                    passed=True,
+                    num_issues=0,
+                    issues=[],
+                    severity="info",
+                )
+            }
+
+            terrain_df = pd.DataFrame({
+                "zip_code": ["97201", "97201", "97202"],
+                "cell_id": ["cell_001", "aggregate", "aggregate"],
+                "cell_effective_hdd": [5000.0, 5000.0, 4500.0],
+            })
+
+            html_path, md_path = generate_qa_report(qa_results, terrain_df, output_dir)
+
+            html_content = html_path.read_text()
+            md_content = md_path.read_text()
+
+            # Check for summary statistics
+            assert "Total Cells" in html_content
+            assert "Total ZIP Codes" in html_content
+            assert "HDD Mean" in html_content
+            assert "HDD Range" in html_content

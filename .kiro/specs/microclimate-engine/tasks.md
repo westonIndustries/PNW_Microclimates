@@ -73,10 +73,10 @@ Uses PRISM 30-year climate normals as the atmospheric base. Produces annual `eff
 
 ## Task 9: Monthly — Validation and QA
 
-- [ ] 9.1 `src/validation/qa_checks.py` — range checks (2,000–8,000 HDD per cell), directional sanity (urban cells < rural cells, windward > leeward, high elevation > low elevation), cell consistency (ZIP aggregate = mean of cells), hard failure flags
-- [ ] 9.2 `src/validation/billing_comparison.py` — compare cell-level and ZIP-level `effective_hdd` against billing-derived therms; flag > 15% divergence
-- [ ] 9.3 Write QA report as `qa_report.html` and `qa_report.md` with cell-level and ZIP-level statistics
-- [ ] 9.4 Flag cells with < 10 valid 1-meter grid pixels as potentially unreliable
+- [x] 9.1 `src/validation/qa_checks.py` — range checks (2,000–8,000 HDD per cell), directional sanity (urban cells < rural cells, windward > leeward, high elevation > low elevation), cell consistency (ZIP aggregate = mean of cells), hard failure flags
+- [x] 9.2 `src/validation/billing_comparison.py` — compare cell-level and ZIP-level `effective_hdd` against billing-derived therms; flag > 15% divergence
+- [x] 9.3 Write QA report as `qa_report.html` and `qa_report.md` with cell-level and ZIP-level statistics
+- [x] 9.4 Flag cells with < 10 valid 1-meter grid pixels as potentially unreliable
 
 ## Task 10: Monthly — Maps and Visualization
 

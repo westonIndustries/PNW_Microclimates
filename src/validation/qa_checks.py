@@ -1,15 +1,17 @@
 """
 QA checks for microclimate pipeline output.
 
-Performs range checks, directional sanity checks, and consistency verification
-on the terrain_attributes.csv output to catch implausible values before they
-enter the simulation pipeline.
+Performs range checks, directional sanity checks, consistency verification,
+hard failure detection, and optional billing comparison on the terrain_attributes.csv
+output to catch implausible values before they enter the simulation pipeline.
 """
 
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import datetime
+from pathlib import Path
 from typing import Optional
 
 import numpy as np
@@ -22,8 +24,11 @@ logger = logging.getLogger(__name__)
 # Constants for QA checks
 EFFECTIVE_HDD_MIN = 2000  # Minimum plausible HDD for PNW
 EFFECTIVE_HDD_MAX = 8000  # Maximum plausible HDD for PNW
+EFFECTIVE_HDD_HARD_MIN = 0  # Hard failure threshold (below this is impossible)
+EFFECTIVE_HDD_HARD_MAX = 15000  # Hard failure threshold (above this is implausible)
 FLOATING_POINT_TOLERANCE = 1e-6  # Tolerance for floating-point comparisons
 AGGREGATE_HDD_TOLERANCE = 0.1  # Tolerance for aggregate HDD verification (HDD units)
+BILLING_DIVERGENCE_THRESHOLD = 0.15  # 15% divergence threshold for billing comparison
 
 
 @dataclass
@@ -35,6 +40,7 @@ class QACheckResult:
     num_issues: int
     issues: list[str]
     severity: str  # "error", "warning", "info"
+    is_hard_failure: bool = False  # True if this check indicates a hard failure
 
     def __str__(self) -> str:
         """Format result as string."""
@@ -308,13 +314,393 @@ def check_cell_reliability(terrain_df: pd.DataFrame, min_pixels: int = 10) -> QA
     )
 
 
-def run_all_qa_checks(terrain_df: pd.DataFrame) -> dict[str, QACheckResult]:
+def check_hard_failures(
+    terrain_df: pd.DataFrame,
+    hdd_hard_min: float = EFFECTIVE_HDD_HARD_MIN,
+    hdd_hard_max: float = EFFECTIVE_HDD_HARD_MAX,
+) -> QACheckResult:
+    """Check for hard failures: HDD < 0 or > 15,000.
+
+    Hard failures indicate data corruption or fundamental errors that must be
+    fixed before the pipeline can proceed.
+
+    Parameters
+    ----------
+    terrain_df : pd.DataFrame
+        DataFrame with terrain attributes. Must contain cell_effective_hdd column.
+    hdd_hard_min : float, optional
+        Hard minimum HDD threshold (default 0).
+    hdd_hard_max : float, optional
+        Hard maximum HDD threshold (default 15000).
+
+    Returns
+    -------
+    QACheckResult
+        Result object with check details and is_hard_failure=True if any failures detected.
+    """
+    issues = []
+
+    # Check for values outside hard failure range
+    hard_failures = terrain_df[
+        (terrain_df["cell_effective_hdd"] < hdd_hard_min)
+        | (terrain_df["cell_effective_hdd"] > hdd_hard_max)
+    ]
+
+    if len(hard_failures) > 0:
+        for idx, row in hard_failures.iterrows():
+            zip_code = row["zip_code"]
+            cell_id = row["cell_id"]
+            hdd = row["cell_effective_hdd"]
+            issues.append(
+                f"ZIP {zip_code} {cell_id}: HDD={hdd:.1f} outside hard limits "
+                f"[{hdd_hard_min}, {hdd_hard_max}]. Data corruption suspected."
+            )
+
+    passed = len(issues) == 0
+    severity = "error" if not passed else "info"
+
+    return QACheckResult(
+        check_name="Hard Failure Check",
+        passed=passed,
+        num_issues=len(issues),
+        issues=issues,
+        severity=severity,
+        is_hard_failure=not passed,
+    )
+
+
+def check_billing_comparison(
+    terrain_df: pd.DataFrame,
+    billing_csv_path: Optional[Path] = None,
+    divergence_threshold: float = BILLING_DIVERGENCE_THRESHOLD,
+) -> QACheckResult:
+    """Compare effective_hdd against billing-derived therms per customer.
+
+    This check is optional and requires a billing reference CSV. If the CSV
+    is not found, the check is skipped and a notice is logged.
+
+    Parameters
+    ----------
+    terrain_df : pd.DataFrame
+        DataFrame with terrain attributes. Must contain zip_code and
+        cell_effective_hdd columns.
+    billing_csv_path : Path, optional
+        Path to billing reference CSV with columns: zip_code, therms_per_customer.
+        If None or file not found, check is skipped.
+    divergence_threshold : float, optional
+        Threshold for flagging divergence as warning (default 0.15 = 15%).
+
+    Returns
+    -------
+    QACheckResult
+        Result object with check details. If billing data not available,
+        returns a passed result with a notice.
+    """
+    issues = []
+
+    # If no billing CSV path provided, skip check
+    if billing_csv_path is None:
+        logger.info("Billing comparison check skipped: no billing CSV path provided")
+        return QACheckResult(
+            check_name="Billing Comparison",
+            passed=True,
+            num_issues=0,
+            issues=["Skipped: no billing data provided"],
+            severity="info",
+        )
+
+    # If billing CSV doesn't exist, skip check
+    if not billing_csv_path.exists():
+        logger.info(f"Billing comparison check skipped: {billing_csv_path} not found")
+        return QACheckResult(
+            check_name="Billing Comparison",
+            passed=True,
+            num_issues=0,
+            issues=[f"Skipped: billing CSV not found at {billing_csv_path}"],
+            severity="info",
+        )
+
+    # Load billing data
+    try:
+        billing_df = pd.read_csv(billing_csv_path)
+    except Exception as e:
+        logger.warning(f"Failed to load billing CSV: {e}")
+        return QACheckResult(
+            check_name="Billing Comparison",
+            passed=True,
+            num_issues=0,
+            issues=[f"Skipped: error reading billing CSV: {e}"],
+            severity="info",
+        )
+
+    # Validate billing CSV has required columns
+    if "zip_code" not in billing_df.columns or "therms_per_customer" not in billing_df.columns:
+        logger.warning("Billing CSV missing required columns (zip_code, therms_per_customer)")
+        return QACheckResult(
+            check_name="Billing Comparison",
+            passed=True,
+            num_issues=0,
+            issues=["Skipped: billing CSV missing required columns"],
+            severity="info",
+        )
+
+    # Get ZIP-code aggregates from terrain_df
+    agg_df = terrain_df[terrain_df["cell_id"] == "aggregate"].copy()
+
+    if len(agg_df) == 0:
+        logger.warning("No aggregate rows found in terrain_df for billing comparison")
+        return QACheckResult(
+            check_name="Billing Comparison",
+            passed=True,
+            num_issues=0,
+            issues=["Skipped: no aggregate rows in terrain data"],
+            severity="info",
+        )
+
+    # Ensure zip_code is string in both dataframes for merge
+    agg_df["zip_code"] = agg_df["zip_code"].astype(str)
+    billing_df["zip_code"] = billing_df["zip_code"].astype(str)
+
+    # Merge with billing data
+    merged = agg_df.merge(
+        billing_df, on="zip_code", how="inner", suffixes=("_terrain", "_billing")
+    )
+
+    if len(merged) == 0:
+        logger.warning("No ZIP codes matched between terrain and billing data")
+        return QACheckResult(
+            check_name="Billing Comparison",
+            passed=True,
+            num_issues=0,
+            issues=["Skipped: no matching ZIP codes in billing data"],
+            severity="info",
+        )
+
+    # Compare effective_hdd to therms_per_customer
+    # Assume 1 HDD ≈ 1 therm per customer (rough equivalence for comparison)
+    for idx, row in merged.iterrows():
+        zip_code = row["zip_code"]
+        eff_hdd = row["cell_effective_hdd"]
+        therms = row["therms_per_customer"]
+
+        # Compute divergence as percentage difference
+        if therms > 0:
+            divergence = abs(eff_hdd - therms) / therms
+        else:
+            divergence = float("inf")
+
+        if divergence > divergence_threshold:
+            issues.append(
+                f"ZIP {zip_code}: effective_hdd={eff_hdd:.1f} diverges from "
+                f"billing therms_per_customer={therms:.1f} by {divergence*100:.1f}% "
+                f"(threshold={divergence_threshold*100:.1f}%)"
+            )
+
+    passed = len(issues) == 0
+    severity = "warning" if not passed else "info"
+
+    return QACheckResult(
+        check_name="Billing Comparison",
+        passed=passed,
+        num_issues=len(issues),
+        issues=issues,
+        severity=severity,
+    )
+
+
+def generate_qa_report(
+    qa_results: dict[str, QACheckResult],
+    terrain_df: pd.DataFrame,
+    output_dir: Path = Path("output/microclimate/"),
+) -> tuple[Path, Path]:
+    """Generate HTML and Markdown QA reports.
+
+    Parameters
+    ----------
+    qa_results : dict[str, QACheckResult]
+        Dictionary of QA check results from run_all_qa_checks.
+    terrain_df : pd.DataFrame
+        Original terrain attributes DataFrame for summary statistics.
+    output_dir : Path, optional
+        Output directory for reports (default output/microclimate/).
+
+    Returns
+    -------
+    tuple[Path, Path]
+        Paths to generated HTML and Markdown report files.
+    """
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Generate timestamp
+    timestamp = datetime.now().isoformat()
+
+    # Compute summary statistics
+    num_cells = len(terrain_df[terrain_df["cell_id"] != "aggregate"])
+    num_zips = len(terrain_df[terrain_df["cell_id"] == "aggregate"])
+    hdd_mean = terrain_df["cell_effective_hdd"].mean()
+    hdd_min = terrain_df["cell_effective_hdd"].min()
+    hdd_max = terrain_df["cell_effective_hdd"].max()
+    hdd_std = terrain_df["cell_effective_hdd"].std()
+
+    # Count issues by severity
+    num_errors = sum(1 for r in qa_results.values() if r.severity == "error")
+    num_warnings = sum(1 for r in qa_results.values() if r.severity == "warning")
+    num_passed = sum(1 for r in qa_results.values() if r.passed)
+
+    # Generate Markdown report
+    md_lines = [
+        "# QA Report — Microclimate Pipeline",
+        "",
+        f"**Generated**: {timestamp}",
+        f"**Pipeline Version**: {config.PIPELINE_VERSION}",
+        "",
+        "## Summary",
+        "",
+        f"- **Total Cells**: {num_cells}",
+        f"- **Total ZIP Codes**: {num_zips}",
+        f"- **Effective HDD Mean**: {hdd_mean:.1f}",
+        f"- **Effective HDD Range**: {hdd_min:.1f} — {hdd_max:.1f}",
+        f"- **Effective HDD Std Dev**: {hdd_std:.1f}",
+        "",
+        "## QA Check Results",
+        "",
+        f"- **Passed**: {num_passed}/{len(qa_results)}",
+        f"- **Errors**: {num_errors}",
+        f"- **Warnings**: {num_warnings}",
+        "",
+    ]
+
+    # Add detailed results for each check
+    for check_name, result in qa_results.items():
+        status = "✓ PASS" if result.passed else "✗ FAIL"
+        md_lines.extend([
+            f"### {result.check_name}",
+            "",
+            f"**Status**: {status}",
+            f"**Severity**: {result.severity}",
+            f"**Issues**: {result.num_issues}",
+            "",
+        ])
+
+        if result.issues:
+            md_lines.append("**Details**:")
+            md_lines.append("")
+            for issue in result.issues[:10]:  # Show first 10 issues
+                md_lines.append(f"- {issue}")
+            if len(result.issues) > 10:
+                md_lines.append(f"- ... and {len(result.issues) - 10} more issues")
+            md_lines.append("")
+
+    # Write Markdown report
+    md_path = output_dir / "qa_report.md"
+    md_path.write_text("\n".join(md_lines), encoding="utf-8")
+    logger.info(f"Markdown QA report written to {md_path}")
+
+    # Generate HTML report
+    html_lines = [
+        "<!DOCTYPE html>",
+        "<html>",
+        "<head>",
+        "  <meta charset='utf-8'>",
+        "  <meta name='viewport' content='width=device-width, initial-scale=1'>",
+        "  <title>QA Report — Microclimate Pipeline</title>",
+        "  <style>",
+        "    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 20px; background: #f5f5f5; }",
+        "    .container { max-width: 1000px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }",
+        "    h1 { color: #333; border-bottom: 3px solid #0066cc; padding-bottom: 10px; }",
+        "    h2 { color: #0066cc; margin-top: 30px; }",
+        "    h3 { color: #555; margin-top: 20px; }",
+        "    .summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin: 20px 0; }",
+        "    .summary-card { background: #f9f9f9; padding: 15px; border-left: 4px solid #0066cc; border-radius: 4px; }",
+        "    .summary-card .label { font-size: 12px; color: #666; text-transform: uppercase; }",
+        "    .summary-card .value { font-size: 24px; font-weight: bold; color: #333; }",
+        "    .check-result { margin: 20px 0; padding: 15px; border-radius: 4px; border-left: 4px solid #ddd; }",
+        "    .check-result.pass { background: #e8f5e9; border-left-color: #4caf50; }",
+        "    .check-result.fail { background: #ffebee; border-left-color: #f44336; }",
+        "    .check-result.warning { background: #fff3e0; border-left-color: #ff9800; }",
+        "    .status { font-weight: bold; font-size: 14px; }",
+        "    .status.pass { color: #4caf50; }",
+        "    .status.fail { color: #f44336; }",
+        "    .status.warning { color: #ff9800; }",
+        "    .issues { margin-top: 10px; padding-left: 20px; }",
+        "    .issues li { margin: 5px 0; font-size: 13px; color: #555; }",
+        "    .timestamp { color: #999; font-size: 12px; margin-top: 30px; padding-top: 20px; border-top: 1px solid #eee; }",
+        "  </style>",
+        "</head>",
+        "<body>",
+        "  <div class='container'>",
+        "    <h1>QA Report — Microclimate Pipeline</h1>",
+        f"    <p><strong>Generated</strong>: {timestamp}</p>",
+        f"    <p><strong>Pipeline Version</strong>: {config.PIPELINE_VERSION}</p>",
+        "",
+        "    <h2>Summary</h2>",
+        "    <div class='summary'>",
+        f"      <div class='summary-card'><div class='label'>Total Cells</div><div class='value'>{num_cells}</div></div>",
+        f"      <div class='summary-card'><div class='label'>Total ZIP Codes</div><div class='value'>{num_zips}</div></div>",
+        f"      <div class='summary-card'><div class='label'>HDD Mean</div><div class='value'>{hdd_mean:.0f}</div></div>",
+        f"      <div class='summary-card'><div class='label'>HDD Range</div><div class='value'>{hdd_min:.0f}–{hdd_max:.0f}</div></div>",
+        f"      <div class='summary-card'><div class='label'>HDD Std Dev</div><div class='value'>{hdd_std:.0f}</div></div>",
+        "    </div>",
+        "",
+        "    <h2>QA Check Results</h2>",
+        "    <div class='summary'>",
+        f"      <div class='summary-card'><div class='label'>Passed</div><div class='value'>{num_passed}/{len(qa_results)}</div></div>",
+        f"      <div class='summary-card'><div class='label'>Errors</div><div class='value' style='color: #f44336;'>{num_errors}</div></div>",
+        f"      <div class='summary-card'><div class='label'>Warnings</div><div class='value' style='color: #ff9800;'>{num_warnings}</div></div>",
+        "    </div>",
+        "",
+    ]
+
+    # Add detailed results for each check
+    for check_name, result in qa_results.items():
+        status_class = "pass" if result.passed else ("fail" if result.severity == "error" else "warning")
+        status_text = "PASS" if result.passed else "FAIL"
+
+        html_lines.extend([
+            f"    <div class='check-result {status_class}'>",
+            f"      <h3>{result.check_name}</h3>",
+            f"      <p><span class='status {status_class}'>{status_text}</span> — {result.severity.upper()} ({result.num_issues} issues)</p>",
+        ])
+
+        if result.issues:
+            html_lines.append("      <div class='issues'><ul>")
+            for issue in result.issues[:10]:  # Show first 10 issues
+                html_lines.append(f"        <li>{issue}</li>")
+            if len(result.issues) > 10:
+                html_lines.append(f"        <li><em>... and {len(result.issues) - 10} more issues</em></li>")
+            html_lines.append("      </ul></div>")
+
+        html_lines.append("    </div>")
+
+    html_lines.extend([
+        "    <div class='timestamp'>",
+        f"      <p>Report generated at {timestamp}</p>",
+        "    </div>",
+        "  </div>",
+        "</body>",
+        "</html>",
+    ])
+
+    # Write HTML report
+    html_path = output_dir / "qa_report.html"
+    html_path.write_text("\n".join(html_lines), encoding="utf-8")
+    logger.info(f"HTML QA report written to {html_path}")
+
+    return html_path, md_path
+
+
+def run_all_qa_checks(
+    terrain_df: pd.DataFrame,
+    billing_csv_path: Optional[Path] = None,
+) -> dict[str, QACheckResult]:
     """Run all QA checks on terrain attributes DataFrame.
 
     Parameters
     ----------
     terrain_df : pd.DataFrame
         DataFrame with cell-level and aggregate rows from terrain_attributes.csv.
+    billing_csv_path : Path, optional
+        Path to billing reference CSV for optional billing comparison check.
 
     Returns
     -------
@@ -328,12 +714,18 @@ def run_all_qa_checks(terrain_df: pd.DataFrame) -> dict[str, QACheckResult]:
     results["effective_hdd_range"] = check_effective_hdd_range(terrain_df)
     results["directional_sanity"] = check_directional_sanity(terrain_df)
     results["cell_reliability"] = check_cell_reliability(terrain_df)
+    results["hard_failures"] = check_hard_failures(terrain_df)
+    results["billing_comparison"] = check_billing_comparison(terrain_df, billing_csv_path)
 
     # Log summary
     num_passed = sum(1 for r in results.values() if r.passed)
     num_total = len(results)
+    num_hard_failures = sum(1 for r in results.values() if r.is_hard_failure)
 
     logger.info(f"QA checks complete: {num_passed}/{num_total} passed")
+
+    if num_hard_failures > 0:
+        logger.error(f"HARD FAILURES DETECTED: {num_hard_failures} check(s) failed")
 
     for check_name, result in results.items():
         logger.info(f"  {result}")

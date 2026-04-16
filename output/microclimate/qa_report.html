@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset='utf-8'>
+  <meta name='viewport' content='width=device-width, initial-scale=1'>
+  <title>QA Report — Microclimate Pipeline</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f5f5; color: #333; }
+    .container { max-width: 1200px; margin: 0 auto; background: white; padding: 30px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+    h1 { color: #0066cc; border-bottom: 3px solid #0066cc; padding-bottom: 15px; margin-bottom: 20px; }
+    h2 { color: #0066cc; margin-top: 30px; margin-bottom: 15px; font-size: 1.3em; }
+    h3 { color: #555; margin-top: 20px; margin-bottom: 10px; font-size: 1.1em; }
+    .header-info { color: #666; font-size: 0.9em; margin-bottom: 20px; }
+    .summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 15px; margin: 20px 0; }
+    .summary-card { background: #f9f9f9; padding: 15px; border-left: 4px solid #0066cc; border-radius: 4px; }
+    .summary-card .label { font-size: 11px; color: #999; text-transform: uppercase; letter-spacing: 0.5px; }
+    .summary-card .value { font-size: 22px; font-weight: bold; color: #333; margin-top: 5px; }
+    .summary-card .unit { font-size: 12px; color: #999; margin-top: 3px; }
+    table { width: 100%; border-collapse: collapse; margin: 15px 0; }
+    th { background: #f0f0f0; padding: 10px; text-align: left; font-weight: 600; border-bottom: 2px solid #ddd; }
+    td { padding: 10px; border-bottom: 1px solid #eee; }
+    tr:hover { background: #f9f9f9; }
+    .check-result { margin: 20px 0; padding: 15px; border-radius: 4px; border-left: 4px solid #ddd; }
+    .check-result.pass { background: #e8f5e9; border-left-color: #4caf50; }
+    .check-result.fail { background: #ffebee; border-left-color: #f44336; }
+    .check-result.warning { background: #fff3e0; border-left-color: #ff9800; }
+    .check-result h3 { margin-top: 0; }
+    .status { font-weight: bold; font-size: 13px; padding: 3px 8px; border-radius: 3px; display: inline-block; }
+    .status.pass { background: #4caf50; color: white; }
+    .status.fail { background: #f44336; color: white; }
+    .status.warning { background: #ff9800; color: white; }
+    .issues { margin-top: 10px; padding-left: 20px; }
+    .issues li { margin: 5px 0; font-size: 13px; color: #555; }
+    .timestamp { color: #999; font-size: 12px; margin-top: 40px; padding-top: 20px; border-top: 1px solid #eee; }
+    .section { margin-bottom: 30px; }
+  </style>
+</head>
+<body>
+  <div class='container'>
+    <h1>QA Report — Microclimate Pipeline</h1>
+    <div class='header-info'>
+      <p><strong>Generated</strong>: 2026-04-15T21:23:47.780884</p>
+      <p><strong>Pipeline Version</strong>: 1.0.0</p>
+    </div>
+
+    <div class='section'>
+      <h2>Cell-Level Statistics</h2>
+      <div class='summary-grid'>
+        <div class='summary-card'><div class='label'>Total Cells</div><div class='value'>2</div></div>
+        <div class='summary-card'><div class='label'>HDD Mean</div><div class='value'>4850</div><div class='unit'>°F-days</div></div>
+        <div class='summary-card'><div class='label'>HDD Median</div><div class='value'>4850</div><div class='unit'>°F-days</div></div>
+        <div class='summary-card'><div class='label'>HDD Range</div><div class='value'>4500–5200</div><div class='unit'>°F-days</div></div>
+        <div class='summary-card'><div class='label'>HDD Std Dev</div><div class='value'>495</div><div class='unit'>°F-days</div></div>
+        <div class='summary-card'><div class='label'>HDD IQR</div><div class='value'>4675–5025</div><div class='unit'>°F-days</div></div>
+      </div>
+    </div>
+
+    <div class='section'>
+      <h2>ZIP-Level Statistics</h2>
+      <div class='summary-grid'>
+        <div class='summary-card'><div class='label'>Total ZIP Codes</div><div class='value'>2</div></div>
+        <div class='summary-card'><div class='label'>HDD Mean</div><div class='value'>4850</div><div class='unit'>°F-days</div></div>
+        <div class='summary-card'><div class='label'>HDD Median</div><div class='value'>4850</div><div class='unit'>°F-days</div></div>
+        <div class='summary-card'><div class='label'>HDD Range</div><div class='value'>4500–5200</div><div class='unit'>°F-days</div></div>
+        <div class='summary-card'><div class='label'>HDD Std Dev</div><div class='value'>495</div><div class='unit'>°F-days</div></div>
+        <div class='summary-card'><div class='label'>HDD IQR</div><div class='value'>4675–5025</div><div class='unit'>°F-days</div></div>
+      </div>
+    </div>
+
+    <div class='section'>
+      <h2>Correction Statistics (Cell-Level)</h2>
+      <table>
+        <tr>
+          <th>Correction Type</th>
+          <th>Mean</th>
+          <th>Min</th>
+          <th>Max</th>
+          <th>Std Dev</th>
+        </tr>
+        <tr>
+          <td>Hdd Terrain Mult</td>
+          <td>1.075</td>
+          <td>1.050</td>
+          <td>1.100</td>
+          <td>0.035</td>
+        </tr>
+        <tr>
+          <td>Hdd Elev Addition</td>
+          <td>150.000</td>
+          <td>100.000</td>
+          <td>200.000</td>
+          <td>70.711</td>
+        </tr>
+        <tr>
+          <td>Hdd Uhi Reduction</td>
+          <td>35.000</td>
+          <td>20.000</td>
+          <td>50.000</td>
+          <td>21.213</td>
+        </tr>
+      </table>
+    </div>
+
+    <div class='section'>
+      <h2>QA Check Results</h2>
+      <div class='summary-grid'>
+        <div class='summary-card'><div class='label'>Passed</div><div class='value'>5/6</div></div>
+        <div class='summary-card'><div class='label'>Errors</div><div class='value' style='color: #f44336;'>0</div></div>
+        <div class='summary-card'><div class='label'>Warnings</div><div class='value' style='color: #ff9800;'>1</div></div>
+      </div>
+    </div>
+
+    <div class='section'>
+      <div class='check-result pass'>
+        <h3>Aggregate HDD Consistency</h3>
+        <p><span class='status pass'>PASS</span> — INFO (0 issues)</p>
+      </div>
+      <div class='check-result pass'>
+        <h3>Effective HDD Range</h3>
+        <p><span class='status pass'>PASS</span> — INFO (0 issues)</p>
+      </div>
+      <div class='check-result warning'>
+        <h3>Directional Sanity</h3>
+        <p><span class='status warning'>FAIL</span> — WARNING (1 issues)</p>
+        <div class='issues'><ul>
+          <li>Windward cells have lower HDD than leeward cells. Windward=4500.0, Leeward=5200.0. Expected: Windward > Leeward (wind exposure)</li>
+        </ul></div>
+      </div>
+      <div class='check-result pass'>
+        <h3>Cell Reliability</h3>
+        <p><span class='status pass'>PASS</span> — INFO (0 issues)</p>
+      </div>
+      <div class='check-result pass'>
+        <h3>Hard Failure Check</h3>
+        <p><span class='status pass'>PASS</span> — INFO (0 issues)</p>
+      </div>
+      <div class='check-result pass'>
+        <h3>Billing Comparison</h3>
+        <p><span class='status pass'>PASS</span> — INFO (0 issues)</p>
+        <div class='issues'><ul>
+          <li>Skipped: no billing data provided</li>
+        </ul></div>
+      </div>
+    </div>
+
+    <div class='timestamp'>
+      <p>Report generated at 2026-04-15T21:23:47.780884</p>
+    </div>
+  </div>
+</body>
+</html>
