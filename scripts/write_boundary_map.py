@@ -151,9 +151,10 @@ def create_html_map(
         var map = L.map('map').setView([{center_lat}, {center_lon}], {zoom});
 
         // Add base layer
-        L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
+        L.tileLayer('https://tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
             attribution: '© OpenStreetMap contributors',
-            maxZoom: 19
+            maxZoom: 19,
+            crossOrigin: true
         }}).addTo(map);
 
         // Region boundary GeoJSON

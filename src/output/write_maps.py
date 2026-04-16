@@ -306,9 +306,10 @@ def _create_html_map(
         <script>
             var map = L.map('map').setView([{center_lat}, {center_lon}], 9);
             
-            L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
+            L.tileLayer('https://tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
                 attribution: '© OpenStreetMap contributors',
-                maxZoom: 19
+                maxZoom: 19,
+                crossOrigin: true
             }}).addTo(map);
             
             var geojsonData = {json.dumps(geojson_data)};

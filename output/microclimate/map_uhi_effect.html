@@ -4,7 +4,7 @@
     <head>
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Urban Heat Island Effect (°F)</title>
+        <title>Urban Heat Island Effect (ï¿½F)</title>
         <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
         <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
         <style>
@@ -20,8 +20,8 @@
         <script>
             var map = L.map('map').setView([45.425, -122.675], 9);
             
-            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                attribution: '© OpenStreetMap contributors',
+            L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: 'ï¿½ OpenStreetMap contributors',
                 maxZoom: 19
             }).addTo(map);
             
@@ -80,7 +80,7 @@
             var title = L.control({position: 'topleft'});
             title.onAdd = function(map) {
                 var div = L.DomUtil.create('div', 'info');
-                div.innerHTML = '<h3 style="margin: 0;">Urban Heat Island Effect (°F)</h3>';
+                div.innerHTML = '<h3 style="margin: 0;">Urban Heat Island Effect (ï¿½F)</h3>';
                 return div;
             };
             title.addTo(map);
