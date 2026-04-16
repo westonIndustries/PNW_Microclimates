@@ -125,3 +125,79 @@ ZIPCODE_STATION_MAP: dict[str, str] = {}
 # ---------------------------------------------------------------------------
 
 GORGE_STATIONS: list[str] = ["KDLS", "KTTD"]
+
+# ---------------------------------------------------------------------------
+# Surface property constants for boundary layer physics
+# ---------------------------------------------------------------------------
+
+# NLCD surface properties lookup table — per NLCD 2021 land cover class
+# Maps NLCD class code to (z0_m, albedo, emissivity)
+# z0_m: roughness length in meters
+# albedo: surface albedo (0.0–1.0)
+# emissivity: thermal emissivity (0.0–1.0)
+NLCD_SURFACE_PROPERTIES: dict[int, dict[str, float]] = {
+    11: {"z0_m": 0.0002, "albedo": 0.08, "emissivity": 0.98},      # Open water
+    12: {"z0_m": 0.0005, "albedo": 0.10, "emissivity": 0.98},      # Perennial ice/snow
+    21: {"z0_m": 0.05, "albedo": 0.20, "emissivity": 0.95},        # Developed, open space
+    22: {"z0_m": 0.50, "albedo": 0.15, "emissivity": 0.92},        # Developed, low intensity
+    23: {"z0_m": 0.80, "albedo": 0.12, "emissivity": 0.90},        # Developed, medium intensity
+    24: {"z0_m": 1.20, "albedo": 0.10, "emissivity": 0.88},        # Developed, high intensity
+    31: {"z0_m": 0.01, "albedo": 0.25, "emissivity": 0.94},        # Barren land
+    41: {"z0_m": 1.50, "albedo": 0.12, "emissivity": 0.98},        # Deciduous forest
+    42: {"z0_m": 1.80, "albedo": 0.10, "emissivity": 0.98},        # Evergreen forest
+    43: {"z0_m": 1.60, "albedo": 0.11, "emissivity": 0.98},        # Mixed forest
+    51: {"z0_m": 0.30, "albedo": 0.20, "emissivity": 0.96},        # Dwarf scrub
+    52: {"z0_m": 0.20, "albedo": 0.22, "emissivity": 0.96},        # Shrub/scrub
+    71: {"z0_m": 0.10, "albedo": 0.25, "emissivity": 0.97},        # Grassland/herbaceous
+    72: {"z0_m": 0.08, "albedo": 0.24, "emissivity": 0.97},        # Sedge/herbaceous
+    73: {"z0_m": 0.12, "albedo": 0.26, "emissivity": 0.97},        # Lichens and mosses
+    74: {"z0_m": 0.05, "albedo": 0.23, "emissivity": 0.97},        # Pasture/hay
+    81: {"z0_m": 0.15, "albedo": 0.24, "emissivity": 0.97},        # Cultivated crops
+    82: {"z0_m": 0.08, "albedo": 0.25, "emissivity": 0.97},        # Pasture/hay (alt)
+    90: {"z0_m": 0.40, "albedo": 0.18, "emissivity": 0.97},        # Woody wetlands
+    95: {"z0_m": 0.30, "albedo": 0.20, "emissivity": 0.97},        # Emergent herbaceous wetlands
+}
+
+# NLCD displacement height lookup table — per NLCD 2021 land cover class
+# Maps NLCD class code to displacement height d in meters
+# d: height above ground where wind profile effectively begins (for forests/urban)
+NLCD_DISPLACEMENT_HEIGHT_M: dict[int, float] = {
+    11: 0.0,        # Open water
+    12: 0.0,        # Perennial ice/snow
+    21: 0.0,        # Developed, open space
+    22: 2.0,        # Developed, low intensity
+    23: 4.0,        # Developed, medium intensity
+    24: 6.0,        # Developed, high intensity
+    31: 0.0,        # Barren land
+    41: 15.0,       # Deciduous forest
+    42: 18.0,       # Evergreen forest
+    43: 16.0,       # Mixed forest
+    51: 0.5,        # Dwarf scrub
+    52: 1.0,        # Shrub/scrub
+    71: 0.0,        # Grassland/herbaceous
+    72: 0.0,        # Sedge/herbaceous
+    73: 0.0,        # Lichens and mosses
+    74: 0.0,        # Pasture/hay
+    81: 0.5,        # Cultivated crops
+    82: 0.0,        # Pasture/hay (alt)
+    90: 2.0,        # Woody wetlands
+    95: 1.0,        # Emergent herbaceous wetlands
+}
+
+# Boundary layer physics constants
+ROUGHNESS_GRADIENT_THRESHOLD = 0.3   # Threshold for roughness transition zone detection
+VON_KARMAN = 0.41                    # Von Kármán constant for log-law wind profile
+BL_DECAY_HEIGHT_FT = 500             # Boundary layer decay height for general effects (ft AGL)
+UHI_BL_DECAY_HEIGHT_FT = 300         # UHI boundary layer decay height (ft AGL)
+Z0_RURAL_REFERENCE = 0.03            # Reference roughness length for rural areas (m)
+
+# Safety cube altitude levels for aviation and GA operations
+SAFETY_CUBE_ALTITUDE_LEVELS_FT = [0, 500, 1000, 3000, 6000, 9000, 12000, 18000]
+
+# Turbulence kinetic energy thresholds for aviation safety classification
+TKE_THRESHOLDS: dict[str, float] = {
+    "smooth": 0.5,      # TKE < 0.5 m²/s² — smooth conditions
+    "light": 1.5,       # 0.5 ≤ TKE < 1.5 m²/s² — light turbulence
+    "moderate": 3.0,    # 1.5 ≤ TKE < 3.0 m²/s² — moderate turbulence
+    # TKE ≥ 3.0 m²/s² — severe turbulence
+}

@@ -34,29 +34,29 @@ All modes (monthly, daily, hourly, real-time) depend on these static data loader
 
 ## Task 4: Granular Microclimate Cells
 
-- [-] 4.1 Add cell-related constants to `src/config.py`: `CELL_SIZE_M = 500` (cell size in meters), `MIN_CELL_PIXELS = 10` (minimum 1m pixels per cell for reliability)
-- [ ] 4.2 Implement `src/processors/create_cells.py` — `create_microclimate_cells(zip_code_polygon, cell_size_m)` that: (a) creates a regular grid of cells within the ZIP code boundary; (b) assigns unique `cell_id` to each cell (`cell_001`, `cell_002`, etc.); (c) optionally classifies cells by dominant characteristics (urban, suburban, rural, valley, ridge, gorge); (d) returns a GeoDataFrame with cell geometries and IDs
-- [ ] 4.3 Implement `src/processors/combine_corrections_cells.py` — for each cell, compute `cell_effective_hdd` using the formula where each component is the **mean value for all 1-meter grid cells within that microclimate cell**; return a DataFrame with one row per cell per ZIP code
+- [x] 4.1 Add cell-related constants to `src/config.py`: `CELL_SIZE_M = 500` (cell size in meters), `MIN_CELL_PIXELS = 10` (minimum 1m pixels per cell for reliability)
+- [x] 4.2 Implement `src/processors/create_cells.py` — `create_microclimate_cells(zip_code_polygon, cell_size_m)` that: (a) creates a regular grid of cells within the ZIP code boundary; (b) assigns unique `cell_id` to each cell (`cell_001`, `cell_002`, etc.); (c) optionally classifies cells by dominant characteristics (urban, suburban, rural, valley, ridge, gorge); (d) returns a GeoDataFrame with cell geometries and IDs
+- [x] 4.3 Implement `src/processors/combine_corrections_cells.py` — for each cell, compute `cell_effective_hdd` using the formula where each component is the **mean value for all 1-meter grid cells within that microclimate cell**; return a DataFrame with one row per cell per ZIP code
 
 ## Task 5: ZIP-Code Aggregates
 
-- [ ] 5.1 Implement `src/processors/aggregate_cells_to_zip.py` — for each ZIP code, compute: (a) `zip_effective_hdd = mean(cell_effective_hdd for all cells)`; (b) variation statistics: `cell_hdd_min`, `cell_hdd_max`, `cell_hdd_std`, `num_cells`; (c) return a DataFrame with one aggregate row per ZIP code with `cell_id = "aggregate"`
-- [ ] 5.2 Add verification check: ZIP-code aggregate `effective_hdd` must equal mean of all cells (within floating-point tolerance); flag mismatches in QA
+- [x] 5.1 Implement `src/processors/aggregate_cells_to_zip.py` — for each ZIP code, compute: (a) `zip_effective_hdd = mean(cell_effective_hdd for all cells)`; (b) variation statistics: `cell_hdd_min`, `cell_hdd_max`, `cell_hdd_std`, `num_cells`; (c) return a DataFrame with one aggregate row per ZIP code with `cell_id = "aggregate"`
+- [x] 5.2 Add verification check: ZIP-code aggregate `effective_hdd` must equal mean of all cells (within floating-point tolerance); flag mismatches in QA
 
 ## Task 6: Region Boundary and Reference Data Generation
 
-- [ ] 6.1 Write `scripts/generate_region1_boundary.py` — fetch OR/WA state boundary polygons from Census TIGER/Line, dissolve into `region_1` polygon, write `data/boundary/region_1.geojson` and `data/boundary/region_registry.csv`
-- [ ] 6.2 Accept optional `--source-dir` for pre-downloaded TIGER/Line shapefiles
-- [ ] 6.3 Build merged ZIP code boundary layer from RLIS > OpenDataSoft > Census ZCTA; write `data/boundary/zipcodes_orwa.geojson` and `zipcodes_orwa.csv`
-- [ ] 6.4 Update `data/boundary/README.md` to document all output files and schemas
-- [ ] 6.5 Write `scripts/write_boundary_map.py` — self-contained Leaflet HTML map of region boundary and ZIP codes
+- [x] 6.1 Write `scripts/generate_region1_boundary.py` — fetch OR/WA state boundary polygons from Census TIGER/Line, dissolve into `region_1` polygon, write `data/boundary/region_1.geojson` and `data/boundary/region_registry.csv`
+- [x] 6.2 Accept optional `--source-dir` for pre-downloaded TIGER/Line shapefiles
+- [x] 6.3 Build merged ZIP code boundary layer from RLIS > OpenDataSoft > Census ZCTA; write `data/boundary/zipcodes_orwa.geojson` and `zipcodes_orwa.csv`
+- [x] 6.4 Update `data/boundary/README.md` to document all output files and schemas
+- [x] 6.5 Write `scripts/write_boundary_map.py` — self-contained Leaflet HTML map of region boundary and ZIP codes
 
 ## Task 7: Surface Property Mask and Physics Engine (shared by daily/hourly/real-time)
 
-- [ ] 7.1 Add surface property constants to `src/config.py`: `NLCD_SURFACE_PROPERTIES` lookup table (z₀, albedo, emissivity per NLCD class), `NLCD_DISPLACEMENT_HEIGHT_M` lookup table (d per NLCD class), `ROUGHNESS_GRADIENT_THRESHOLD = 0.3`, `VON_KARMAN = 0.41`, `BL_DECAY_HEIGHT_FT = 500`, `UHI_BL_DECAY_HEIGHT_FT = 300`, `Z0_RURAL_REFERENCE = 0.03`, `SAFETY_CUBE_ALTITUDE_LEVELS_FT = [0, 500, 1000, 3000, 6000, 9000, 12000, 18000]`, `TKE_THRESHOLDS = {"smooth": 0.5, "light": 1.5, "moderate": 3.0}`
-- [ ] 7.2 Implement `src/processors/surface_property_mask.py` — `build_surface_mask(nlcd_array)` returns dict with `z0_m`, `displacement_height_m`, `albedo`, `emissivity`, `nlcd_class`, `roughness_gradient`, `roughness_transition_zone` arrays
-- [ ] 7.3 Implement `src/processors/surface_physics_engine.py` — (a) `apply_forest_displacement(wind_speed_ms, z_agl_m, z0, d, u_star)` — displaced log-law wind, zero below canopy; (b) `apply_uhi_boundary_layer(uhi_offset_f, z_agl_ft)` — exponential UHI decay, zero above 1,000 ft; (c) `compute_tke(u_star, z0_local)` — TKE from roughness contrast
-- [ ] 7.4 Implement `src/processors/boundary_layer_correction.py` — (a) `compute_wind_shear_correction` for roughness transition zones ≤ 1,000 ft; (b) `compute_thermal_subsidence` over water bodies ≤ 1,000 ft
+- [x] 7.1 Add surface property constants to `src/config.py`: `NLCD_SURFACE_PROPERTIES` lookup table (z₀, albedo, emissivity per NLCD class), `NLCD_DISPLACEMENT_HEIGHT_M` lookup table (d per NLCD class), `ROUGHNESS_GRADIENT_THRESHOLD = 0.3`, `VON_KARMAN = 0.41`, `BL_DECAY_HEIGHT_FT = 500`, `UHI_BL_DECAY_HEIGHT_FT = 300`, `Z0_RURAL_REFERENCE = 0.03`, `SAFETY_CUBE_ALTITUDE_LEVELS_FT = [0, 500, 1000, 3000, 6000, 9000, 12000, 18000]`, `TKE_THRESHOLDS = {"smooth": 0.5, "light": 1.5, "moderate": 3.0}`
+- [x] 7.2 Implement `src/processors/surface_property_mask.py` — `build_surface_mask(nlcd_array)` returns dict with `z0_m`, `displacement_height_m`, `albedo`, `emissivity`, `nlcd_class`, `roughness_gradient`, `roughness_transition_zone` arrays
+- [x] 7.3 Implement `src/processors/surface_physics_engine.py` — (a) `apply_forest_displacement(wind_speed_ms, z_agl_m, z0, d, u_star)` — displaced log-law wind, zero below canopy; (b) `apply_uhi_boundary_layer(uhi_offset_f, z_agl_ft)` — exponential UHI decay, zero above 1,000 ft; (c) `compute_tke(u_star, z0_local)` — TKE from roughness contrast
+- [x] 7.4 Implement `src/processors/boundary_layer_correction.py` — (a) `compute_wind_shear_correction` for roughness transition zones ≤ 1,000 ft; (b) `compute_thermal_subsidence` over water bodies ≤ 1,000 ft
 
 ---
 
@@ -66,10 +66,10 @@ Uses PRISM 30-year climate normals as the atmospheric base. Produces annual `eff
 
 ## Task 8: Monthly — Combine Corrections and Output
 
-- [ ] 8.1 `src/processors/combine_corrections.py` — `compute_effective_hdd(base_hdd, terrain_mult, elev_addition, uhi_reduction, traffic_reduction)` returning `base_hdd × terrain_mult + elev_addition − uhi_reduction − traffic_reduction`
-- [ ] 8.2 `src/processors/weather_adjustment.py` — optional `--weather-year` adjustment: `effective_hdd_adjusted = effective_hdd × (actual_station_hdd / normal_station_hdd)` (applies to all cells)
-- [ ] 8.3 `src/output/write_terrain_attributes.py` — write `terrain_attributes.csv` with: (a) **cell-level rows** (one per cell per ZIP code) with `microclimate_id = {region}_{zip}_{station}_cell_{cell_id}`, `cell_id`, `cell_type`, `effective_hdd`, all correction columns, `cell_area_sqm`; (b) **ZIP-code aggregate rows** (one per ZIP code) with `microclimate_id = {region}_{zip}_{station}_aggregate`, `cell_id = "aggregate"`, `effective_hdd = mean across cells`, `num_cells`, `cell_hdd_min`, `cell_hdd_max`, `cell_hdd_std`, all mean correction columns
-- [ ] 8.4 Add versioning columns to all rows: `run_date`, `pipeline_version`, `lidar_vintage`, `nlcd_vintage`, `prism_period`
+- [x] 8.1 `src/processors/combine_corrections.py` — `compute_effective_hdd(base_hdd, terrain_mult, elev_addition, uhi_reduction, traffic_reduction)` returning `base_hdd × terrain_mult + elev_addition − uhi_reduction − traffic_reduction`
+- [x] 8.2 `src/processors/weather_adjustment.py` — optional `--weather-year` adjustment: `effective_hdd_adjusted = effective_hdd × (actual_station_hdd / normal_station_hdd)` (applies to all cells)
+- [x] 8.3 `src/output/write_terrain_attributes.py` — write `terrain_attributes.csv` with: (a) **cell-level rows** (one per cell per ZIP code) with `microclimate_id = {region}_{zip}_{station}_cell_{cell_id}`, `cell_id`, `cell_type`, `effective_hdd`, all correction columns, `cell_area_sqm`; (b) **ZIP-code aggregate rows** (one per ZIP code) with `microclimate_id = {region}_{zip}_{station}_aggregate`, `cell_id = "aggregate"`, `effective_hdd = mean across cells`, `num_cells`, `cell_hdd_min`, `cell_hdd_max`, `cell_hdd_std`, all mean correction columns
+- [x] 8.4 Add versioning columns to all rows: `run_date`, `pipeline_version`, `lidar_vintage`, `nlcd_vintage`, `prism_period`
 
 ## Task 9: Monthly — Validation and QA
 
