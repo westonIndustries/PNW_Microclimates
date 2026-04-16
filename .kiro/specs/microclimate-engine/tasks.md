@@ -111,16 +111,16 @@ Uses HRRR 3 km data bias-corrected against PRISM. Produces daily `effective_hdd`
 
 ## Task 12: Daily — HRRR Integration and Bias Correction
 
-- [ ] 12.1 Add HRRR-related constants to `src/config.py`: `HRRR_CACHE_DIR`, `HRRR_S3_BUCKET`, `HRRR_GCS_BUCKET`, `HRRR_EARLIEST_DATE`, `HRRR_DOWNLOAD_CONFIRM_THRESHOLD_GB`, `GA_ALTITUDE_LEVELS_FT`, `HRRR_PRESSURE_LEVELS_MB`, `HRRR_MIN_CLIM_YEARS`, `DAILY_OUTPUT_DIR`
-- [ ] 12.2 `src/loaders/load_hrrr.py` — download/cache HRRR GRIB2 from S3/GCS, extract 2 m temp + 10 m wind + pressure-level wind, compute daily mean, write manifest CSV; support `--month YYYY-MM` shorthand; validate dates ≥ 2014-07-30; prompt if > 10 GB
-- [ ] 12.3 `src/processors/bias_correct_hrrr.py` — `bias_correct(hrrr_daily_temp, prism_monthly_normal, hrrr_climatology)` → `hrrr_adjusted = hrrr_raw + (prism_normal − hrrr_climatology)`; fallback when < 3 years cached
-- [ ] 12.4 `src/processors/wind_profile_extractor.py` — extract wind speed/direction at 6 GA altitudes via log-pressure interpolation from HRRR pressure levels; also extract temperature at each altitude; assign to ZIP codes by nearest grid cell
-- [ ] 12.5 `src/processors/daily_combine.py` — `compute_daily_effective_hdd` per ZIP × date; orchestrate daily pipeline: load HRRR → bias correct → wind profiles → combine → write
-- [ ] 12.6 `src/output/write_daily_output.py` — write daily Parquet/CSV with `daily_effective_hdd`, wind profiles, altitude temp/HDD
-- [ ] 12.7 Create `data/hrrr/README.md` — cache structure, manifest schema, storage estimates, manual download instructions
-- [ ] 12.8 Property test: HRRR bias correction round-trip and identity
-- [ ] 12.9 Property test: wind profile altitude interpolation bounds and physical reasonableness
-- [ ] 12.10 Property test: daily effective_hdd non-negativity and temperature monotonicity
+- [x] 12.1 Add HRRR-related constants to `src/config.py`: `HRRR_CACHE_DIR`, `HRRR_S3_BUCKET`, `HRRR_GCS_BUCKET`, `HRRR_EARLIEST_DATE`, `HRRR_DOWNLOAD_CONFIRM_THRESHOLD_GB`, `GA_ALTITUDE_LEVELS_FT`, `HRRR_PRESSURE_LEVELS_MB`, `HRRR_MIN_CLIM_YEARS`, `DAILY_OUTPUT_DIR`
+- [x] 12.2 `src/loaders/load_hrrr.py` — download/cache HRRR GRIB2 from S3/GCS, extract 2 m temp + 10 m wind + pressure-level wind, compute daily mean, write manifest CSV; support `--month YYYY-MM` shorthand; validate dates ≥ 2014-07-30; prompt if > 10 GB
+- [x] 12.3 `src/processors/bias_correct_hrrr.py` — `bias_correct(hrrr_daily_temp, prism_monthly_normal, hrrr_climatology)` → `hrrr_adjusted = hrrr_raw + (prism_normal − hrrr_climatology)`; fallback when < 3 years cached
+- [x] 12.4 `src/processors/wind_profile_extractor.py` — extract wind speed/direction at 6 GA altitudes via log-pressure interpolation from HRRR pressure levels; also extract temperature at each altitude; assign to ZIP codes by nearest grid cell
+- [x] 12.5 `src/processors/daily_combine.py` — `compute_daily_effective_hdd` per ZIP × date; orchestrate daily pipeline: load HRRR → bias correct → wind profiles → combine → write
+- [x] 12.6 `src/output/write_daily_output.py` — write daily Parquet/CSV with `daily_effective_hdd`, wind profiles, altitude temp/HDD
+- [x] 12.7 Create `data/hrrr/README.md` — cache structure, manifest schema, storage estimates, manual download instructions
+- [x] 12.8 Property test: HRRR bias correction round-trip and identity
+- [x] 12.9 Property test: wind profile altitude interpolation bounds and physical reasonableness
+- [x] 12.10 Property test: daily effective_hdd non-negativity and temperature monotonicity
 
 ## Task 13: Daily — Altitude-Level Microclimate Profiles
 

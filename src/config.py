@@ -203,3 +203,47 @@ TKE_THRESHOLDS: dict[str, float] = {
     "moderate": 3.0,    # 1.5 ≤ TKE < 3.0 m²/s² — moderate turbulence
     # TKE ≥ 3.0 m²/s² — severe turbulence
 }
+
+
+# ---------------------------------------------------------------------------
+# HRRR (High-Resolution Rapid Refresh) data ingestion and caching
+# ---------------------------------------------------------------------------
+
+# Local cache directory for downloaded HRRR GRIB2 files
+HRRR_CACHE_DIR = Path("data/hrrr/")
+
+# AWS S3 bucket for HRRR data (public, anonymous access)
+HRRR_S3_BUCKET = "s3://noaa-hrrr-bdp-pds/"
+
+# Google Cloud Storage bucket for HRRR data (alternative source)
+HRRR_GCS_BUCKET = "gs://noaa-hrrr-bdp-pds/"
+
+# Earliest available HRRR analysis date (f00 forecast hour = analysis)
+# HRRR became available on 2014-07-30
+HRRR_EARLIEST_DATE = "2014-07-30"
+
+# Download confirmation threshold — prompt user if estimated download exceeds this size (GB)
+HRRR_DOWNLOAD_CONFIRM_THRESHOLD_GB = 10
+
+# Minimum number of years of HRRR climatology required for bias correction
+# If fewer years are cached, fallback to raw HRRR monthly mean
+HRRR_MIN_CLIM_YEARS = 3
+
+# Output directory for daily mode results
+DAILY_OUTPUT_DIR = Path("output/microclimate/daily/")
+
+# ---------------------------------------------------------------------------
+# General Aviation (GA) altitude levels for multi-level microclimate profiles
+# ---------------------------------------------------------------------------
+
+# GA altitude levels in feet AGL for safety cube and wind profile extraction
+# Includes surface (0 ft), boundary layer (500, 1000 ft), and upper levels
+GA_ALTITUDE_LEVELS_FT = [0, 500, 1000, 3000, 6000, 9000, 12000, 18000]
+
+# ---------------------------------------------------------------------------
+# HRRR pressure levels for wind and temperature extraction
+# ---------------------------------------------------------------------------
+
+# HRRR pressure levels (mb) available in the analysis files
+# Used for log-pressure interpolation to GA altitude levels
+HRRR_PRESSURE_LEVELS_MB = [1000, 975, 950, 925, 900, 875, 850, 825, 800, 775, 750, 700, 650, 600, 550, 500]
