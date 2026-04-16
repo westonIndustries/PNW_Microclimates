@@ -186,10 +186,53 @@ def run_region(
 
             logger.info("Daily mode completed")
 
-        # Hourly mode
-        if mode in ["hourly"]:
+        # Hourly mode (runs after daily if mode="both")
+        if mode in ["hourly", "both"] and start_date and end_date:
             logger.info(f"Running hourly mode for {start_date} to {end_date}")
-            # TODO: Implement hourly mode pipeline
+
+            # Load terrain corrections from normals mode
+            if Path(TERRAIN_ATTRIBUTES_CSV).exists():
+                terrain_df = pd.read_csv(TERRAIN_ATTRIBUTES_CSV)
+            else:
+                logger.warning(
+                    f"Terrain attributes not found at {TERRAIN_ATTRIBUTES_CSV}. "
+                    "Run normals mode first."
+                )
+                terrain_df = pd.DataFrame()
+
+            # Create dummy ZIP code centroids (would be loaded from data)
+            zip_centroids = pd.DataFrame(
+                {
+                    "zip_code": ["97201", "97202"],
+                    "lat": [45.5, 45.6],
+                    "lon": [-122.6, -122.7],
+                }
+            )
+
+            # Import hourly pipeline
+            from src.processors.hourly_orchestrator import run_hourly_pipeline
+            from src.output.write_hourly_output import write_hourly_output
+
+            # Run hourly pipeline
+            hourly_data = run_hourly_pipeline(
+                region_name=region_name,
+                start_date=start_date,
+                end_date=end_date,
+                terrain_corrections_df=terrain_df,
+                zip_code_centroids=zip_centroids,
+                hrrr_source=hrrr_source,
+            )
+
+            # Write hourly output
+            hourly_output_path = write_hourly_output(
+                hourly_data,
+                region_name=region_name,
+                start_date=start_date,
+                end_date=end_date,
+            )
+            output_files.append(str(hourly_output_path))
+            logger.info(f"Hourly output written to {hourly_output_path}")
+
             logger.info("Hourly mode completed")
 
         # Real-time mode
