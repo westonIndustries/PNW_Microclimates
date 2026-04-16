@@ -192,8 +192,8 @@ Persistent daemon that polls for new HRRR cycles and produces safety cubes withi
 
 ## Task 17: Pipeline Orchestrator and CLI
 
-- [ ] 17.1 `src/pipeline.py` — implement `run_region(region_name, mode, weather_year, start_date, end_date)` that dispatches to the correct mode: `normals` → Part B, `daily` → Part C, `hourly` → Part D, `both` → normals then daily then hourly (reusing terrain corrections), `realtime` → Part E daemon
-- [ ] 17.2 CLI entry point: `python -m src.pipeline --region region_1 --mode normals|daily|hourly|both|realtime` with all existing flags (`--weather-year`, `--start-date`, `--end-date`, `--month`, `--hrrr-source`, `--output-format`, `--no-confirm`, `--safety-cube`, `--cube-altitudes`, `--dry-run`, `--all-regions`)
-- [ ] 17.3 Support `--all-regions` flag for batch processing across all regions in the registry
-- [ ] 17.4 Log progress and timing per step; write logs to stdout and run output folder
-- [ ] 17.5 Implement `publish_run_folder` — assemble self-contained output folder with all GeoJSONs, maps, CSVs, Parquets, QA reports, and `run_manifest.json`
+- [x] 17.1 `src/pipeline.py` — implement `run_region(region_name, mode, weather_year, start_date, end_date)` that dispatches to the correct mode: `normals` → Part B, `daily` → Part C, `hourly` → Part D, `both` → normals then daily then hourly (reusing terrain corrections), `realtime` → Part E daemon
+- [x] 17.2 CLI entry point: `python -m src.pipeline --region region_1 --mode normals|daily|hourly|both|realtime` with all existing flags (`--weather-year`, `--start-date`, `--end-date`, `--month`, `--hrrr-source`, `--output-format`, `--no-confirm`, `--safety-cube`, `--cube-altitudes`, `--dry-run`, `--all-regions`)
+- [x] 17.3 Support `--all-regions` flag for batch processing across all regions in the registry
+- [x] 17.4 Log progress and timing per step; write logs to stdout and run output folder
+- [x] 17.5 Implement `publish_run_folder` — assemble self-contained output folder with all GeoJSONs, maps, CSVs, Parquets, QA reports, and `run_manifest.json`
