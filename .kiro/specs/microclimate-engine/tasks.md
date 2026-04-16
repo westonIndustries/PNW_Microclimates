@@ -176,15 +176,15 @@ Persistent daemon that polls for new HRRR cycles and produces safety cubes withi
 
 ## Task 16: Real-Time — Data Daemon (Optional)
 
-- [ ] 16.1* Add `herbie` to `requirements.txt` and `src/config.py`: `DAEMON_POLL_INTERVAL_SEC = 300`, `DAEMON_HRRR_PRODUCT = "prs"`, `DAEMON_LOOKBACK_HOURS = 2`, `STATIC_CACHE_DIR = Path("data/cache/static/")`, `REALTIME_OUTPUT_DIR = Path("output/realtime/")`
-- [ ] 16.2* Implement `src/realtime/static_cache.py` — `build_static_cache(region_name)` pre-computes and serializes all static features (NLCD surface mask, LiDAR terrain, road heat flux, UHI offsets) to `.npz` files with a `cache_manifest.json` for hash-based staleness detection
-- [ ] 16.3* Implement `src/realtime/hrrr_poller.py` — `HRRRPoller` class using `herbie.Herbie` to poll for latest HRRR `prs` analysis cycle; exponential backoff on errors; emits xarray Dataset to callback
-- [ ] 16.4* Implement `src/realtime/streaming_pipeline.py` — `process_hrrr_cycle(hrrr_ds, static_cache_dir, region_name)` that bias-corrects, downscales 3 km → 1 m, applies cached surface physics, builds single-hour safety cube; must complete within 120 seconds
-- [ ] 16.5* Implement `src/realtime/daemon.py` — `run_daemon(region_name)` with `multiprocessing.Process` for poller, queue-based consumption, graceful SIGINT/SIGTERM shutdown, `daemon_status.json`, 48-hour output rotation
-- [ ] 16.6* CLI entry point: `python -m src.realtime.daemon --region region_1` with `--build-cache`, `--poll-interval`, `--lookback`, `--foreground` flags
-- [ ] 16.7* Property test: static cache round-trip and hash-based staleness detection
-- [ ] 16.8* Property test: streaming pipeline produces valid safety cube with expected columns and physical bounds
-- [ ] 16.9* Property test: daemon graceful shutdown writes final status JSON
+- [x] 16.1* Add `herbie` to `requirements.txt` and `src/config.py`: `DAEMON_POLL_INTERVAL_SEC = 300`, `DAEMON_HRRR_PRODUCT = "prs"`, `DAEMON_LOOKBACK_HOURS = 2`, `STATIC_CACHE_DIR = Path("data/cache/static/")`, `REALTIME_OUTPUT_DIR = Path("output/realtime/")`
+- [x] 16.2* Implement `src/realtime/static_cache.py` — `build_static_cache(region_name)` pre-computes and serializes all static features (NLCD surface mask, LiDAR terrain, road heat flux, UHI offsets) to `.npz` files with a `cache_manifest.json` for hash-based staleness detection
+- [x] 16.3* Implement `src/realtime/hrrr_poller.py` — `HRRRPoller` class using `herbie.Herbie` to poll for latest HRRR `prs` analysis cycle; exponential backoff on errors; emits xarray Dataset to callback
+- [x] 16.4* Implement `src/realtime/streaming_pipeline.py` — `process_hrrr_cycle(hrrr_ds, static_cache_dir, region_name)` that bias-corrects, downscales 3 km → 1 m, applies cached surface physics, builds single-hour safety cube; must complete within 120 seconds
+- [x] 16.5* Implement `src/realtime/daemon.py` — `run_daemon(region_name)` with `multiprocessing.Process` for poller, queue-based consumption, graceful SIGINT/SIGTERM shutdown, `daemon_status.json`, 48-hour output rotation
+- [x] 16.6* CLI entry point: `python -m src.realtime.daemon --region region_1` with `--build-cache`, `--poll-interval`, `--lookback`, `--foreground` flags
+- [x] 16.7* Property test: static cache round-trip and hash-based staleness detection
+- [x] 16.8* Property test: streaming pipeline produces valid safety cube with expected columns and physical bounds
+- [x] 16.9* Property test: daemon graceful shutdown writes final status JSON
 
 ---
 

@@ -247,3 +247,16 @@ GA_ALTITUDE_LEVELS_FT = [0, 500, 1000, 3000, 6000, 9000, 12000, 18000]
 # HRRR pressure levels (mb) available in the analysis files
 # Used for log-pressure interpolation to GA altitude levels
 HRRR_PRESSURE_LEVELS_MB = [1000, 975, 950, 925, 900, 875, 850, 825, 800, 775, 750, 700, 650, 600, 550, 500]
+
+
+# ---------------------------------------------------------------------------
+# Real-Time Daemon Configuration (Optional)
+# ---------------------------------------------------------------------------
+
+DAEMON_POLL_INTERVAL_SEC = 300          # Poll for new HRRR cycles every 5 minutes
+DAEMON_HRRR_PRODUCT = "prs"             # HRRR product: "prs" = pressure levels
+DAEMON_LOOKBACK_HOURS = 2               # Look back 2 hours for missed cycles
+STATIC_CACHE_DIR = Path("data/cache/static/")  # Pre-computed static features cache
+REALTIME_OUTPUT_DIR = Path("output/realtime/")  # Real-time output directory
+DAEMON_STATUS_FILE = REALTIME_OUTPUT_DIR / "daemon_status.json"  # Daemon status tracking
+DAEMON_OUTPUT_ROTATION_HOURS = 48       # Rotate output files every 48 hours
