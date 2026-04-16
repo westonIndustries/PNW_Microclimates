@@ -10,7 +10,7 @@ Produces daily effective HDD and multi-altitude wind/temperature profiles.
 import logging
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -27,6 +27,10 @@ from src.loaders.load_hrrr import HRRRLoader
 from src.loaders.load_prism_temperature import load_prism_temperature
 from src.processors.bias_correct_hrrr import bias_correct
 from src.processors.wind_profile_extractor import extract_wind_profiles
+from src.processors.boundary_layer_correction import (
+    compute_wind_shear_correction,
+    compute_thermal_subsidence,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -93,6 +97,53 @@ def compute_altitude_hdd(temp_adjusted_f: float) -> float:
         HDD at altitude (°F-days)
     """
     return max(0, 65 - temp_adjusted_f)
+
+
+def apply_boundary_layer_corrections(
+    temp_adjusted_f: float,
+    wind_speed_ms: float,
+    z_agl_ft: float,
+    z0_local: float = 0.1,
+    z0_upwind: float = 0.03,
+    is_water: bool = False,
+) -> Tuple[float, float]:
+    """
+    Apply boundary layer corrections (wind shear and thermal subsidence) at ≤ 1,000 ft AGL.
+
+    Parameters
+    ----------
+    temp_adjusted_f : float
+        Bias-corrected temperature (°F)
+    wind_speed_ms : float
+        Wind speed (m/s)
+    z_agl_ft : float
+        Altitude above ground level (feet)
+    z0_local : float, default 0.1
+        Local roughness length (meters)
+    z0_upwind : float, default 0.03
+        Upwind roughness length (meters)
+    is_water : bool, default False
+        Whether the pixel is water
+
+    Returns
+    -------
+    Tuple[float, float]
+        (corrected_temp_f, wind_shear_correction_kt)
+    """
+    # Apply thermal subsidence correction (cooling over water)
+    temp_anomaly = 5.0  # Typical land-water temperature difference (°F)
+    thermal_correction = compute_thermal_subsidence(
+        temp_anomaly, z_agl_ft, is_water
+    )
+    temp_corrected = temp_adjusted_f + thermal_correction
+
+    # Apply wind shear correction (at roughness transitions)
+    u_star = wind_speed_ms * 0.41 / np.log(10.0 / z0_upwind) if z0_upwind > 0 else 0
+    wind_shear_correction = compute_wind_shear_correction(
+        wind_speed_ms, z_agl_ft, z0_local, z0_upwind, u_star
+    )
+
+    return temp_corrected, wind_shear_correction
 
 
 def run_daily_pipeline(
@@ -270,6 +321,16 @@ def run_daily_pipeline(
                     "pipeline_version": PIPELINE_VERSION,
                     "nlcd_vintage": NLCD_VINTAGE,
                     "prism_period": PRISM_PERIOD,
+                    # Surface properties (from terrain corrections)
+                    "z0_m": terrain_row.get("z0_m", 0.1),
+                    "albedo": terrain_row.get("surface_albedo", 0.15),
+                    "emissivity": terrain_row.get("emissivity", 0.95),
+                    "roughness_transition_pct": terrain_row.get(
+                        "roughness_transition_pct", 0.0
+                    ),
+                    "nlcd_dominant_class": terrain_row.get("nlcd_dominant_class", 0),
+                    "wind_shear_correction_sfc_kt": 0.0,  # Will be computed per altitude
+                    "water_cooling_sfc_f": 0.0,  # Will be computed per altitude
                 }
 
                 # Add wind profile data

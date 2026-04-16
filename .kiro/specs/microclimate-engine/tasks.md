@@ -124,17 +124,17 @@ Uses HRRR 3 km data bias-corrected against PRISM. Produces daily `effective_hdd`
 
 ## Task 13: Daily — Altitude-Level Microclimate Profiles
 
-- [ ] 13.1 `src/processors/altitude_microclimate.py` — bias-correct altitude temperatures, compute `hdd_{alt} = max(0, 65 − temp_{alt}_adjusted_f)` with no surface corrections above ground
-- [ ] 13.2 Integrate altitude profiles into daily combine pipeline
-- [ ] 13.3 Add altitude columns to daily output schema (18 columns: temp raw/adjusted + HDD at 6 levels)
-- [ ] 13.4 Apply boundary layer corrections (wind shear, thermal subsidence) at ≤ 1,000 ft AGL
-- [ ] 13.5 Add surface property columns to daily output (`z0_m`, `albedo`, `emissivity`, `roughness_transition_pct`, `nlcd_dominant_class`, `wind_shear_correction_sfc_kt`, `water_cooling_sfc_f`)
-- [ ] 13.6 Property test: altitude temperature decreases with height (5°F inversion tolerance)
-- [ ] 13.7 Property test: altitude HDD increases with height
-- [ ] 13.8 Property test: no surface corrections at altitude
-- [ ] 13.9 Property test: wind shear correction zero outside transition zones
-- [ ] 13.10 Property test: thermal subsidence zero over non-water pixels
-- [ ] 13.11 Property test: boundary layer corrections only apply ≤ 1,000 ft
+- [x] 13.1 `src/processors/altitude_microclimate.py` — bias-correct altitude temperatures, compute `hdd_{alt} = max(0, 65 − temp_{alt}_adjusted_f)` with no surface corrections above ground
+- [x] 13.2 Integrate altitude profiles into daily combine pipeline
+- [x] 13.3 Add altitude columns to daily output schema (18 columns: temp raw/adjusted + HDD at 6 levels)
+- [x] 13.4 Apply boundary layer corrections (wind shear, thermal subsidence) at ≤ 1,000 ft AGL
+- [x] 13.5 Add surface property columns to daily output (`z0_m`, `albedo`, `emissivity`, `roughness_transition_pct`, `nlcd_dominant_class`, `wind_shear_correction_sfc_kt`, `water_cooling_sfc_f`)
+- [x] 13.6 Property test: altitude temperature decreases with height (5°F inversion tolerance)
+- [x] 13.7 Property test: altitude HDD increases with height
+- [x] 13.8 Property test: no surface corrections at altitude
+- [x] 13.9 Property test: wind shear correction zero outside transition zones
+- [x] 13.10 Property test: thermal subsidence zero over non-water pixels
+- [x] 13.11 Property test: boundary layer corrections only apply ≤ 1,000 ft
 
 ## Task 14: Daily — Aviation Safety Cube
 

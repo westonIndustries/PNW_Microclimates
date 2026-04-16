@@ -119,6 +119,7 @@ def validate_daily_output(daily_data: pd.DataFrame) -> dict:
     - No NaN values in key columns
     - Reasonable value ranges
     - Consistent date format
+    - Altitude columns present (temp_raw/adjusted + HDD at 6 levels)
 
     Parameters
     ----------
@@ -148,6 +149,19 @@ def validate_daily_output(daily_data: pd.DataFrame) -> dict:
         if col not in daily_data.columns:
             errors.append(f"Missing required column: {col}")
 
+    # Check for altitude columns (6 levels: 3k, 6k, 9k, 12k, 18k ft AGL)
+    # Each altitude should have: temp_raw, temp_adjusted, hdd
+    altitude_levels = [3000, 6000, 9000, 12000, 18000]
+    for alt_ft in altitude_levels:
+        alt_cols = [
+            f"temp_{alt_ft}ft_raw_f",
+            f"temp_{alt_ft}ft_adjusted_f",
+            f"hdd_{alt_ft}ft",
+        ]
+        for col in alt_cols:
+            if col not in daily_data.columns:
+                warnings.append(f"Missing altitude column: {col}")
+
     # Check for NaN in key columns
     for col in required_cols:
         if col in daily_data.columns:
@@ -174,6 +188,18 @@ def validate_daily_output(daily_data: pd.DataFrame) -> dict:
             warnings.append(
                 f"Temperature range unusual: {temp_min}°F to {temp_max}°F"
             )
+
+    # Check altitude temperature ranges
+    for alt_ft in altitude_levels:
+        col_adjusted = f"temp_{alt_ft}ft_adjusted_f"
+        if col_adjusted in daily_data.columns:
+            temp_min = daily_data[col_adjusted].min()
+            temp_max = daily_data[col_adjusted].max()
+            if temp_min < -80 or temp_max > 100:
+                warnings.append(
+                    f"Altitude {alt_ft}ft temperature range unusual: "
+                    f"{temp_min}°F to {temp_max}°F"
+                )
 
     # Check date format
     if "date" in daily_data.columns:
