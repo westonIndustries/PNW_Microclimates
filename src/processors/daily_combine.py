@@ -31,6 +31,7 @@ from src.processors.boundary_layer_correction import (
     compute_wind_shear_correction,
     compute_thermal_subsidence,
 )
+from src.processors.aviation_safety_cube import build_safety_cube
 
 logger = logging.getLogger(__name__)
 
@@ -154,13 +155,15 @@ def run_daily_pipeline(
     zip_code_centroids: pd.DataFrame,
     hrrr_loader: Optional[HRRRLoader] = None,
     hrrr_source: str = "s3",
-) -> pd.DataFrame:
+    build_safety_cube_flag: bool = False,
+) -> Tuple[pd.DataFrame, Optional[pd.DataFrame]]:
     """
     Orchestrate the daily microclimate pipeline.
 
     Loads HRRR data for a date range, bias-corrects against PRISM,
     extracts wind profiles, applies terrain corrections, and computes
-    daily effective HDD per ZIP code.
+    daily effective HDD per ZIP code. Optionally builds a 3D aviation
+    safety cube.
 
     Parameters
     ----------
@@ -183,22 +186,24 @@ def run_daily_pipeline(
         HRRR loader instance. If None, creates a new one.
     hrrr_source : str, default "s3"
         HRRR data source ("s3" or "gcs")
+    build_safety_cube_flag : bool, default False
+        If True, also build and return a 3D aviation safety cube
 
     Returns
     -------
-    pd.DataFrame
-        Daily microclimate data with columns:
-        - date (ISO 8601)
-        - zip_code
-        - hrrr_raw_temp_f
-        - hrrr_adjusted_temp_f
-        - bias_correction_f
-        - daily_effective_hdd
-        - terrain_multiplier
-        - wind_speed_sfc_kt, wind_dir_sfc_deg (and for each altitude)
-        - temp_sfc_raw_f, temp_sfc_adjusted_f, hdd_sfc
-        - temp_{alt}_raw_f, temp_{alt}_adjusted_f, hdd_{alt} (for each altitude)
-        - run_date, pipeline_version, nlcd_vintage, prism_period
+    Tuple[pd.DataFrame, Optional[pd.DataFrame]]
+        (daily_data, safety_cube) where:
+        - daily_data: Daily microclimate data with columns:
+          - date (ISO 8601)
+          - zip_code
+          - hrrr_raw_temp_f, hrrr_adjusted_temp_f, bias_correction_f
+          - daily_effective_hdd, terrain_multiplier
+          - wind_speed_sfc_kt, wind_dir_sfc_deg (and for each altitude)
+          - temp_sfc_raw_f, temp_sfc_adjusted_f, hdd_sfc
+          - temp_{alt}_raw_f, temp_{alt}_adjusted_f, hdd_{alt} (for each altitude)
+          - run_date, pipeline_version, nlcd_vintage, prism_period
+        - safety_cube: 3D cube (ZIP × date × altitude) if build_safety_cube_flag=True,
+          else None
     """
     if hrrr_loader is None:
         hrrr_loader = HRRRLoader()
@@ -366,4 +371,13 @@ def run_daily_pipeline(
 
         current_dt += timedelta(days=1)
 
-    return pd.DataFrame(all_results)
+    daily_df = pd.DataFrame(all_results)
+
+    # Build safety cube if requested
+    safety_cube_df = None
+    if build_safety_cube_flag:
+        logger.info("Building aviation safety cube")
+        safety_cube_df = build_safety_cube(daily_df)
+        logger.info(f"Built safety cube with {len(safety_cube_df)} rows")
+
+    return daily_df, safety_cube_df

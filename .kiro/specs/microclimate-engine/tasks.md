@@ -138,17 +138,17 @@ Uses HRRR 3 km data bias-corrected against PRISM. Produces daily `effective_hdd`
 
 ## Task 14: Daily — Aviation Safety Cube
 
-- [ ] 14.1 `src/processors/aviation_safety_cube.py` — `build_safety_cube` assembling ZIP × date × 8 altitudes with temp, wind, TKE, wind shear, HDD, density altitude, turbulence flag
-- [ ] 14.2 `src/output/write_safety_cube.py` — write cube to date-partitioned Parquet with snappy compression
-- [ ] 14.3 Integrate safety cube into daily combine pipeline
-- [ ] 14.4 Update CLI with `--safety-cube` flag and `--cube-altitudes` override
-- [ ] 14.5 Update daily output schema in `design.md` for safety cube columns
-- [ ] 14.6 Property test: forest displacement sets wind to zero below canopy
-- [ ] 14.7 Property test: UHI boundary layer decay (5.0°F at surface → ~1.84°F at 500 ft → 0 at 1,500 ft)
-- [ ] 14.8 Property test: TKE scales with roughness (urban > rural)
-- [ ] 14.9 Property test: wind shear constant for linear wind profile
-- [ ] 14.10 Property test: density altitude equals pressure altitude at ISA standard
-- [ ] 14.11 Property test: turbulence flag thresholds (smooth/light/moderate/severe)
+- [x] 14.1 `src/processors/aviation_safety_cube.py` — `build_safety_cube` assembling ZIP × date × 8 altitudes with temp, wind, TKE, wind shear, HDD, density altitude, turbulence flag
+- [x] 14.2 `src/output/write_safety_cube.py` — write cube to date-partitioned Parquet with snappy compression
+- [x] 14.3 Integrate safety cube into daily combine pipeline
+- [x] 14.4 Update CLI with `--safety-cube` flag and `--cube-altitudes` override
+- [x] 14.5 Update daily output schema in `design.md` for safety cube columns
+- [x] 14.6 Property test: forest displacement sets wind to zero below canopy
+- [x] 14.7 Property test: UHI boundary layer decay (5.0°F at surface → ~1.84°F at 500 ft → 0 at 1,500 ft)
+- [x] 14.8 Property test: TKE scales with roughness (urban > rural)
+- [x] 14.9 Property test: wind shear constant for linear wind profile
+- [x] 14.10 Property test: density altitude equals pressure altitude at ISA standard
+- [x] 14.11 Property test: turbulence flag thresholds (smooth/light/moderate/severe)
 
 ---
 

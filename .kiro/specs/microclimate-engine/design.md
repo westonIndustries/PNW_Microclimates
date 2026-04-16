@@ -388,3 +388,53 @@ Full column definitions for the daily mode output file (`daily_{region}_{start}_
 | `eccodes` | ≥ 1.5 | ECMWF GRIB codec library; required C dependency for cfgrib |
 | `s3fs` | ≥ 2023.1 | S3-compatible filesystem interface for anonymous access to `s3://noaa-hrrr-bdp-pds/` |
 | `pyarrow` | ≥ 14.0 | Parquet I/O for daily mode time-series output (columnar compression, fast reads) |
+
+
+---
+
+## Aviation Safety Cube Schema
+
+The aviation safety cube is a 3D structure (ZIP × date × altitude) designed for general aviation (GA) and UAS operations. It includes 8 altitude levels from surface to 18,000 ft AGL.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `date` | string | ISO 8601 date (e.g., `2024-01-15`) |
+| `zip_code` | string | US ZIP code — primary geographic key |
+| `altitude_ft` | int | Altitude above ground level in feet: 0, 500, 1000, 3000, 6000, 9000, 12000, or 18000 |
+| `temp_adjusted_f` | float64 | Bias-corrected temperature at altitude (°F) |
+| `wind_speed_kt` | float64 | Wind speed at altitude (knots) |
+| `wind_dir_deg` | float64 | Wind direction at altitude (degrees true) |
+| `tke_m2s2` | float64 | Turbulent kinetic energy (m²/s²) — scales with roughness contrast |
+| `wind_shear_kt_per_100ft` | float64 | Wind shear correction (knots per 100 ft) — zero above 1,000 ft |
+| `hdd` | float64 | Heating degree days at altitude (°F-days, base 65°F) — no surface corrections |
+| `density_altitude_ft` | float64 | Density altitude (feet) — critical for aircraft performance |
+| `turbulence_flag` | string | Turbulence classification: "smooth", "light", "moderate", or "severe" |
+
+### Safety Cube Altitude Levels
+
+The cube includes 8 altitude levels optimized for GA operations:
+
+| Altitude (ft AGL) | Purpose |
+|-------------------|---------|
+| 0 | Surface conditions (2 m AGL) |
+| 500 | Low-level boundary layer effects |
+| 1,000 | Top of boundary layer; wind shear and thermal subsidence effects end |
+| 3,000 | Typical GA cruise altitude (lower range) |
+| 6,000 | Typical GA cruise altitude (mid range) |
+| 9,000 | Typical GA cruise altitude (upper range) |
+| 12,000 | High-altitude GA operations |
+| 18,000 | Class A airspace floor; transition to upper-level winds |
+
+### Safety Cube Partitioning
+
+The safety cube is written to date-partitioned Parquet files for efficient time-range queries:
+
+```
+output/microclimate/safety_cube/
+├── safety_cube_region_1_2024-01-15.parquet
+├── safety_cube_region_1_2024-01-16.parquet
+├── ...
+└── safety_cube_region_1_2024-01-31.parquet
+```
+
+Each file contains all ZIP codes and all 8 altitude levels for that date.
