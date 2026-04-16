@@ -689,6 +689,52 @@ def generate_qa_report(
     return html_path, md_path
 
 
+def check_data_file_availability() -> QACheckResult:
+    """Check if required data files exist.
+
+    Verifies that critical input data files are available:
+    - LiDAR DEM raster (1m resolution)
+    - NLCD imperviousness raster (2021)
+
+    Returns
+    -------
+    QACheckResult
+        Result object with check details. Missing files are warnings, not hard failures.
+    """
+    issues = []
+
+    # Check LiDAR DEM file
+    lidar_path = config.LIDAR_DEM_RASTER
+    if not lidar_path.exists():
+        issues.append(
+            f"LiDAR DEM file not found: {lidar_path}. "
+            f"Download using: python -m src.pipeline data lidar --region <region>"
+        )
+    else:
+        logger.info(f"✓ LiDAR DEM file found: {lidar_path}")
+
+    # Check NLCD imperviousness file
+    nlcd_path = config.NLCD_IMPERVIOUS_RASTER
+    if not nlcd_path.exists():
+        issues.append(
+            f"NLCD imperviousness file not found: {nlcd_path}. "
+            f"Download using: python -m src.pipeline data nlcd --region <region>"
+        )
+    else:
+        logger.info(f"✓ NLCD imperviousness file found: {nlcd_path}")
+
+    passed = len(issues) == 0
+    severity = "warning" if not passed else "info"
+
+    return QACheckResult(
+        check_name="Data File Availability",
+        passed=passed,
+        num_issues=len(issues),
+        issues=issues,
+        severity=severity,
+    )
+
+
 def run_all_qa_checks(
     terrain_df: pd.DataFrame,
     billing_csv_path: Optional[Path] = None,
@@ -710,6 +756,7 @@ def run_all_qa_checks(
     results = {}
 
     # Run all checks
+    results["data_file_availability"] = check_data_file_availability()
     results["aggregate_hdd_consistency"] = verify_aggregate_hdd_consistency(terrain_df)
     results["effective_hdd_range"] = check_effective_hdd_range(terrain_df)
     results["directional_sanity"] = check_directional_sanity(terrain_df)

@@ -17,7 +17,12 @@ import csv
 import numpy as np
 import pandas as pd
 import xarray as xr
-import s3fs
+
+try:
+    import s3fs
+except ImportError:
+    s3fs = None
+
 from dateutil.parser import parse as parse_date
 
 from src.config import (

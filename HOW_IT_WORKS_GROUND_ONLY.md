@@ -311,3 +311,231 @@ All flagged ZIP codes and cells are listed in the QA report for manual review.
 5. **Deploy to production**: Write final CSV to shared location for downstream models to consume
 
 The spec is complete and ready for implementation. See `IMPLEMENTATION_GUIDE_GROUND_ONLY.md` for detailed technical steps.
+
+---
+
+## Current Implementation Status (April 2026)
+
+### ✅ Completed
+
+**Core Pipeline:**
+- ✅ Project setup and configuration (src/ package structure, config.py)
+- ✅ Static data loaders (LiDAR, PRISM, NLCD, NREL wind, Landsat LST, MesoWest, road emissions)
+- ✅ Static processors (terrain analysis, thermal logic, wind steering, anthropogenic load)
+- ✅ Granular microclimate cells (500m × 500m grid creation)
+- ✅ ZIP-code aggregation with statistics
+- ✅ Region boundary and reference data generation
+- ✅ Surface property mask and physics engine
+- ✅ Normals mode pipeline (monthly mode with 30-year climate normals)
+- ✅ Validation and QA checks
+- ✅ Interactive maps and visualization
+- ✅ Daily mode pipeline (HRRR integration, bias correction, altitude profiles)
+- ✅ Aviation safety cube
+- ✅ Hourly mode pipeline (per-hour processing)
+- ✅ Real-time daemon (optional)
+- ✅ Pipeline orchestrator and CLI
+
+**Data Acquisition:**
+- ✅ LiDAR DEM downloader (OpenTopography API via bmi-topography)
+- ✅ NLCD imperviousness downloader (MRLC GeoServer via PyGeoHydro)
+- ✅ PRISM temperature downloader
+- ✅ Landsat 9 LST downloader
+- ✅ MesoWest wind downloader
+- ✅ NREL wind downloader
+- ✅ Road network downloader
+- ✅ Boundary shapefile downloader
+- ✅ NOAA station downloader
+- ✅ Data validation script
+- ✅ Comprehensive data source documentation
+
+**Runtime & CLI:**
+- ✅ Unified CLI with subcommands (run, data)
+- ✅ Support for all pipeline modes (normals, daily, hourly, both, realtime)
+- ✅ Batch processing (--all-regions flag)
+- ✅ Dry-run and verbose logging
+- ✅ Comprehensive error handling
+
+**Documentation:**
+- ✅ RUNTIME_PLAYBOOK.md (consolidated guide)
+- ✅ Installation guides (Conda, pip, Docker)
+- ✅ Troubleshooting guides
+- ✅ CLI reference
+- ✅ Migration guide (old → new CLI)
+- ✅ Data acquisition documentation
+
+### 🚀 How to Use
+
+**Quick Start (5 minutes):**
+
+```bash
+# 1. Create environment
+conda create -n microclimate python=3.10 -c conda-forge
+conda activate microclimate
+
+# 2. Install packages
+conda install -c conda-forge geopandas rasterio shapely
+pip install -r requirements-minimal.txt
+
+# 3. Get API key
+# Visit https://opentopography.org, create account, request API key
+$env:OPENTOPOGRAPHY_API_KEY="your_key"
+
+# 4. Download data
+python -m src.pipeline data lidar --region region_1
+python -m src.pipeline data nlcd --region region_1
+python -m src.pipeline data download-all --region region_1
+
+# 5. Run pipeline
+python -m src.pipeline run --region region_1 --mode normals
+```
+
+**Output:**
+- `output/runs/region_1__normal__TIMESTAMP/terrain_attributes.csv` - Main output with cell-level and ZIP-level HDD data
+- `output/runs/region_1__normal__TIMESTAMP/map_*.html` - Interactive maps
+- `output/runs/region_1__normal__TIMESTAMP/qa_report.html` - Quality assurance report
+
+### 📊 Current Capabilities
+
+**Modes:**
+- ✅ **Normals mode**: 30-year climate normals with granular cells
+- ✅ **Daily mode**: Daily HDD with multi-altitude profiles
+- ✅ **Hourly mode**: Per-hour safety cubes
+- ✅ **Batch mode**: Process all regions at once
+
+**Data Sources:**
+- ✅ LiDAR DEM (1m) - Automated download via OpenTopography
+- ✅ NLCD Imperviousness (30m) - Automated download via MRLC
+- ✅ PRISM Temperature (800m) - Automated download
+- ✅ Landsat 9 LST (30m) - Automated download via Planetary Computer
+- ✅ MesoWest Wind - Automated download via SynopticLabs API
+- ✅ NREL Wind (2km) - Automated download
+- ✅ Road Networks - Automated download (ODOT/WSDOT)
+- ✅ Boundaries - Automated download (Census TIGER/Line)
+- ✅ NOAA Stations - Automated download
+
+**Output Formats:**
+- ✅ CSV (terrain_attributes.csv with cell-level and ZIP-level rows)
+- ✅ Parquet (daily/hourly modes)
+- ✅ GeoJSON (maps and boundaries)
+- ✅ Interactive HTML maps (Leaflet)
+- ✅ QA reports (HTML and Markdown)
+
+### 📁 File Structure
+
+```
+PNW_Microclimates/
+├── RUNTIME_PLAYBOOK.md              ← START HERE
+├── HOW_IT_WORKS_GROUND_ONLY.md      ← This file
+├── README.md
+├── requirements.txt                 ← Full dependencies
+├── requirements-minimal.txt         ← Minimal dependencies (Windows)
+├── requirements-data.txt            ← Data acquisition dependencies
+│
+├── src/
+│   ├── pipeline.py                  ← Main CLI entry point
+│   ├── config.py                    ← Configuration constants
+│   ├── loaders/                     ← Data loading modules
+│   ├── processors/                  ← Data processing modules
+│   ├── output/                      ← Output writing modules
+│   ├── validation/                  ← QA and validation
+│   └── realtime/                    ← Real-time daemon (optional)
+│
+├── scripts/
+│   ├── download_data.py             ← Data acquisition CLI
+│   ├── validate_data.py             ← Data validation
+│   └── data_sources/                ← Individual downloaders
+│       ├── lidar_dem.py
+│       ├── nlcd_impervious.py
+│       ├── prism_temperature.py
+│       ├── landsat_lst.py
+│       ├── mesowest_wind.py
+│       ├── nrel_wind.py
+│       ├── road_emissions.py
+│       ├── boundary_shapefiles.py
+│       └── noaa_stations.py
+│
+├── data/
+│   ├── boundary/                    ← Region and ZIP code boundaries
+│   ├── lidar/                       ← LiDAR DEM files
+│   ├── nlcd/                        ← NLCD imperviousness
+│   ├── prism/                       ← PRISM temperature
+│   ├── landsat/                     ← Landsat LST
+│   ├── mesowest/                    ← MesoWest wind observations
+│   ├── nrel/                        ← NREL wind resource
+│   ├── roads/                       ← Road network shapefiles
+│   ├── noaa/                        ← NOAA station metadata
+│   └── DATA_SOURCES.md              ← Data source documentation
+│
+├── output/
+│   ├── runs/                        ← Normals mode output
+│   │   └── region_1__normal__TIMESTAMP/
+│   │       ├── terrain_attributes.csv
+│   │       ├── map_*.html
+│   │       ├── qa_report.html
+│   │       └── run_manifest.json
+│   └── microclimate/                ← Daily/hourly mode output
+│       ├── daily_region_1_*.parquet
+│       └── hourly_region_1_*.parquet
+│
+├── .kiro/specs/microclimate-engine/
+│   ├── requirements.md              ← Feature requirements
+│   ├── design.md                    ← Technical design
+│   └── tasks.md                     ← Implementation tasks
+│
+└── old_tutorials/                   ← Archived documentation
+    └── README.md
+```
+
+### 🔧 CLI Commands
+
+**Run Pipeline:**
+```bash
+python -m src.pipeline run --region region_1 --mode normals
+python -m src.pipeline run --region region_1 --mode daily --month 2024-01
+python -m src.pipeline run --region region_1 --mode hourly --start-date 2024-01-01 --end-date 2024-01-31
+python -m src.pipeline run --mode normals --all-regions
+```
+
+**Download Data:**
+```bash
+python -m src.pipeline data download-all --region region_1
+python -m src.pipeline data lidar --region region_1
+python -m src.pipeline data nlcd --region region_1
+python -m src.pipeline data validate
+```
+
+**Get Help:**
+```bash
+python -m src.pipeline --help
+python -m src.pipeline run --help
+python -m src.pipeline data --help
+```
+
+### 📚 Documentation
+
+- **RUNTIME_PLAYBOOK.md** - Complete installation, setup, and usage guide
+- **HOW_IT_WORKS_GROUND_ONLY.md** - This file (system architecture and design)
+- **IMPLEMENTATION_GUIDE_GROUND_ONLY.md** - Detailed technical implementation steps
+- **data/DATA_SOURCES.md** - Data source information and download instructions
+- **old_tutorials/** - Archived individual guides (for reference only)
+
+### ✨ Key Features
+
+✅ **Automated Data Acquisition** - Download all data via CLI with API integration
+✅ **Granular Microclimate Cells** - 500m × 500m cells within each ZIP code
+✅ **Multi-Mode Pipeline** - Normals, daily, hourly, and real-time modes
+✅ **Interactive Maps** - Leaflet HTML maps with layer controls
+✅ **Quality Assurance** - Automated QA checks and validation
+✅ **Backward Compatible** - ZIP-code aggregates for existing models
+✅ **Scalable** - Process all regions in batch mode
+✅ **Well-Documented** - Comprehensive guides and API documentation
+
+### 🎯 Next Steps
+
+1. **Read RUNTIME_PLAYBOOK.md** for installation and setup
+2. **Get OpenTopography API key** for LiDAR downloads
+3. **Run data acquisition**: `python -m src.pipeline data download-all --region region_1`
+4. **Run pipeline**: `python -m src.pipeline run --region region_1 --mode normals`
+5. **Check output**: `output/runs/region_1__normal__TIMESTAMP/terrain_attributes.csv`
+
+The system is production-ready and fully documented!

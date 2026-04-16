@@ -15,7 +15,7 @@ from typing import Optional, List, Dict, Any
 
 import pandas as pd
 
-from src.config import TERRAIN_ATTRIBUTES_CSV, DAILY_OUTPUT_DIR
+from src.config import TERRAIN_ATTRIBUTES_CSV, DAILY_OUTPUT_DIR, PIPELINE_VERSION
 from src.processors.daily_combine import run_daily_pipeline
 from src.output.write_daily_output import write_daily_output
 from src.output.write_safety_cube import write_safety_cube
@@ -284,7 +284,48 @@ def run_region(
         if mode in ["normals", "both"]:
             logger.info("Running normals mode")
             normals_start = time.time()
-            # TODO: Implement normals mode pipeline
+            
+            # Import normals pipeline
+            from src.processors.normals_combine import run_normals_pipeline
+            from src.output.write_terrain_attributes import write_terrain_attributes
+            from src.output.write_maps import write_maps
+            
+            # Run normals pipeline
+            cells_df, qa_results = run_normals_pipeline(
+                region_name=region_name,
+                weather_year=weather_year,
+            )
+            
+            # Write terrain attributes CSV
+            output_path = Path(TERRAIN_ATTRIBUTES_CSV)
+            write_terrain_attributes(
+                cells_df,
+                region_code="R1",  # TODO: Get from region registry
+                output_path=output_path,
+                pipeline_version=PIPELINE_VERSION,
+                lidar_vintage=2021,  # TODO: Get from config
+                nlcd_vintage=2021,  # TODO: Get from config
+                prism_period="1991-2020",  # TODO: Get from config
+            )
+            
+            # Write maps
+            try:
+                maps_dir = Path("output/microclimate") / region_name / "maps"
+                write_maps(cells_df, maps_dir)
+                logger.info(f"Maps written to {maps_dir}")
+            except Exception as e:
+                logger.warning(f"Failed to write maps: {e}")
+            
+            # Write QA report
+            try:
+                qa_report_path = Path("output/microclimate") / region_name / "qa_report.md"
+                from src.output.write_qa_report import write_qa_reports
+                write_qa_reports(cells_df, qa_report_path.parent)
+                output_files.append(str(qa_report_path))
+                logger.info(f"QA report written to {qa_report_path}")
+            except Exception as e:
+                logger.warning(f"Failed to write QA report: {e}")
+            
             normals_time = time.time() - normals_start
             step_times["normals"] = normals_time
             logger.info(f"Normals mode completed in {normals_time:.2f} seconds")
@@ -462,18 +503,39 @@ def run_region(
 def main():
     """CLI entry point for the microclimate pipeline."""
     parser = argparse.ArgumentParser(
-        description="Regional Microclimate Modeling Engine"
+        description="Regional Microclimate Modeling Engine",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Run normals mode for a region
+  python -m src.pipeline run --region region_1 --mode normals
+  
+  # Download all data sources
+  python -m src.pipeline data download-all --region region_1
+  
+  # Download specific data source
+  python -m src.pipeline data lidar --region region_1
+  
+  # Validate downloaded data
+  python -m src.pipeline data validate
+        """,
     )
 
+    # Create subparsers for main commands
+    subparsers = parser.add_subparsers(dest="command", help="Main command")
+
+    # ===== RUN COMMAND =====
+    run_parser = subparsers.add_parser("run", help="Run microclimate pipeline")
+
     # Required arguments
-    parser.add_argument(
+    run_parser.add_argument(
         "--region",
         required=True,
         help="Region name (e.g., region_1)",
     )
 
     # Mode selection
-    parser.add_argument(
+    run_parser.add_argument(
         "--mode",
         default="normals",
         choices=["normals", "daily", "hourly", "both", "realtime"],
@@ -481,28 +543,28 @@ def main():
     )
 
     # Date range arguments
-    parser.add_argument(
+    run_parser.add_argument(
         "--start-date",
         help="ISO 8601 start date (YYYY-MM-DD) for daily/hourly modes",
     )
-    parser.add_argument(
+    run_parser.add_argument(
         "--end-date",
         help="ISO 8601 end date (YYYY-MM-DD) for daily/hourly modes",
     )
-    parser.add_argument(
+    run_parser.add_argument(
         "--month",
         help="Month shorthand (YYYY-MM) for daily/hourly modes",
     )
 
     # Weather adjustment
-    parser.add_argument(
+    run_parser.add_argument(
         "--weather-year",
         type=int,
         help="Year for weather adjustment (e.g., 2024)",
     )
 
     # HRRR options
-    parser.add_argument(
+    run_parser.add_argument(
         "--hrrr-source",
         default="s3",
         choices=["s3", "gcs"],
@@ -510,25 +572,25 @@ def main():
     )
 
     # Output options
-    parser.add_argument(
+    run_parser.add_argument(
         "--output-format",
         default="parquet",
         choices=["parquet", "csv", "both"],
         help="Output format (default: parquet)",
     )
-    parser.add_argument(
+    run_parser.add_argument(
         "--no-confirm",
         action="store_true",
         help="Skip confirmation prompts for large downloads",
     )
 
     # Safety cube options
-    parser.add_argument(
+    run_parser.add_argument(
         "--safety-cube",
         action="store_true",
         help="Build aviation safety cube for daily mode",
     )
-    parser.add_argument(
+    run_parser.add_argument(
         "--cube-altitudes",
         type=int,
         nargs="+",
@@ -536,25 +598,116 @@ def main():
     )
 
     # Execution options
-    parser.add_argument(
+    run_parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Print steps without executing",
     )
-    parser.add_argument(
+    run_parser.add_argument(
         "--all-regions",
         action="store_true",
         help="Run for all regions in registry",
     )
 
     # Logging
-    parser.add_argument(
+    run_parser.add_argument(
         "--verbose",
         action="store_true",
         help="Enable verbose logging",
     )
 
+    # ===== DATA COMMAND =====
+    data_parser = subparsers.add_parser("data", help="Download and manage data sources")
+
+    # Data subcommands
+    data_subparsers = data_parser.add_subparsers(dest="data_command", help="Data operation")
+
+    # Download all
+    dl_all_parser = data_subparsers.add_parser(
+        "download-all",
+        help="Download all data sources",
+    )
+    dl_all_parser.add_argument("--region", default="region_1", help="Region name (default: region_1)")
+    dl_all_parser.add_argument("--output-dir", type=Path, default=Path("data"), help="Base output directory (default: data)")
+    dl_all_parser.add_argument("--force-redownload", action="store_true", help="Force re-download even if files exist")
+    dl_all_parser.add_argument("--dry-run", action="store_true", help="Print steps without executing")
+    dl_all_parser.add_argument("--verbose", action="store_true", help="Enable verbose logging")
+
+    # Individual data sources
+    lidar_parser = data_subparsers.add_parser("lidar", help="Download LiDAR DEM")
+    lidar_parser.add_argument("--region", default="region_1", help="Region name (default: region_1)")
+    lidar_parser.add_argument("--output-dir", type=Path, default=Path("data"), help="Base output directory (default: data)")
+    lidar_parser.add_argument("--force-redownload", action="store_true", help="Force re-download even if files exist")
+    lidar_parser.add_argument("--dry-run", action="store_true", help="Print steps without executing")
+    lidar_parser.add_argument("--verbose", action="store_true", help="Enable verbose logging")
+
+    prism_parser = data_subparsers.add_parser("prism", help="Download PRISM temperature normals")
+    prism_parser.add_argument("--region", default="region_1", help="Region name (default: region_1)")
+    prism_parser.add_argument("--output-dir", type=Path, default=Path("data"), help="Base output directory (default: data)")
+    prism_parser.add_argument("--force-redownload", action="store_true", help="Force re-download even if files exist")
+    prism_parser.add_argument("--dry-run", action="store_true", help="Print steps without executing")
+    prism_parser.add_argument("--verbose", action="store_true", help="Enable verbose logging")
+
+    nlcd_parser = data_subparsers.add_parser("nlcd", help="Download NLCD imperviousness")
+    nlcd_parser.add_argument("--region", default="region_1", help="Region name (default: region_1)")
+    nlcd_parser.add_argument("--output-dir", type=Path, default=Path("data"), help="Base output directory (default: data)")
+    nlcd_parser.add_argument("--force-redownload", action="store_true", help="Force re-download even if files exist")
+    nlcd_parser.add_argument("--dry-run", action="store_true", help="Print steps without executing")
+    nlcd_parser.add_argument("--verbose", action="store_true", help="Enable verbose logging")
+
+    landsat_parser = data_subparsers.add_parser("landsat", help="Download Landsat 9 LST")
+    landsat_parser.add_argument("--region", default="region_1", help="Region name (default: region_1)")
+    landsat_parser.add_argument("--output-dir", type=Path, default=Path("data"), help="Base output directory (default: data)")
+    landsat_parser.add_argument("--force-redownload", action="store_true", help="Force re-download even if files exist")
+    landsat_parser.add_argument("--dry-run", action="store_true", help="Print steps without executing")
+    landsat_parser.add_argument("--verbose", action="store_true", help="Enable verbose logging")
+
+    mesowest_parser = data_subparsers.add_parser("mesowest", help="Download MesoWest wind observations")
+    mesowest_parser.add_argument("--region", default="region_1", help="Region name (default: region_1)")
+    mesowest_parser.add_argument("--output-dir", type=Path, default=Path("data"), help="Base output directory (default: data)")
+    mesowest_parser.add_argument("--force-redownload", action="store_true", help="Force re-download even if files exist")
+    mesowest_parser.add_argument("--dry-run", action="store_true", help="Print steps without executing")
+    mesowest_parser.add_argument("--verbose", action="store_true", help="Enable verbose logging")
+
+    nrel_parser = data_subparsers.add_parser("nrel-wind", help="Download NREL wind resource")
+    nrel_parser.add_argument("--region", default="region_1", help="Region name (default: region_1)")
+    nrel_parser.add_argument("--output-dir", type=Path, default=Path("data"), help="Base output directory (default: data)")
+    nrel_parser.add_argument("--force-redownload", action="store_true", help="Force re-download even if files exist")
+    nrel_parser.add_argument("--dry-run", action="store_true", help="Print steps without executing")
+    nrel_parser.add_argument("--verbose", action="store_true", help="Enable verbose logging")
+
+    roads_parser = data_subparsers.add_parser("roads", help="Download road network shapefiles")
+    roads_parser.add_argument("--region", default="region_1", help="Region name (default: region_1)")
+    roads_parser.add_argument("--output-dir", type=Path, default=Path("data"), help="Base output directory (default: data)")
+    roads_parser.add_argument("--force-redownload", action="store_true", help="Force re-download even if files exist")
+    roads_parser.add_argument("--dry-run", action="store_true", help="Print steps without executing")
+    roads_parser.add_argument("--verbose", action="store_true", help="Enable verbose logging")
+
+    boundaries_parser = data_subparsers.add_parser("boundaries", help="Download boundary shapefiles")
+    boundaries_parser.add_argument("--region", default="region_1", help="Region name (default: region_1)")
+    boundaries_parser.add_argument("--output-dir", type=Path, default=Path("data"), help="Base output directory (default: data)")
+    boundaries_parser.add_argument("--force-redownload", action="store_true", help="Force re-download even if files exist")
+    boundaries_parser.add_argument("--dry-run", action="store_true", help="Print steps without executing")
+    boundaries_parser.add_argument("--verbose", action="store_true", help="Enable verbose logging")
+
+    noaa_parser = data_subparsers.add_parser("noaa-stations", help="Download NOAA station metadata")
+    noaa_parser.add_argument("--region", default="region_1", help="Region name (default: region_1)")
+    noaa_parser.add_argument("--output-dir", type=Path, default=Path("data"), help="Base output directory (default: data)")
+    noaa_parser.add_argument("--force-redownload", action="store_true", help="Force re-download even if files exist")
+    noaa_parser.add_argument("--dry-run", action="store_true", help="Print steps without executing")
+    noaa_parser.add_argument("--verbose", action="store_true", help="Enable verbose logging")
+
+    # Validation
+    validate_parser = data_subparsers.add_parser("validate", help="Validate all downloaded data files")
+    validate_parser.add_argument("--output-dir", type=Path, default=Path("data"), help="Base output directory (default: data)")
+    validate_parser.add_argument("--verbose", action="store_true", help="Enable verbose logging")
+
     args = parser.parse_args()
+
+    # If no command specified, print help
+    if not args.command:
+        parser.print_help()
+        exit(0)
 
     # Configure logging
     log_level = logging.DEBUG if args.verbose else logging.INFO
@@ -563,6 +716,18 @@ def main():
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     )
 
+    # Handle commands
+    if args.command == "run":
+        _handle_run_command(args)
+    elif args.command == "data":
+        _handle_data_command(args)
+    else:
+        parser.print_help()
+        exit(0)
+
+
+def _handle_run_command(args):
+    """Handle the 'run' subcommand."""
     # Handle --all-regions flag
     if args.all_regions:
         logger.info("Running pipeline for all regions in registry")
@@ -623,6 +788,98 @@ def main():
         print(f"\n{result['message']}")
         if result["status"] == "error":
             exit(1)
+
+
+def _handle_data_command(args):
+    """Handle the 'data' subcommand for data acquisition."""
+    # Ensure output directory exists
+    args.output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Import data acquisition modules
+    from scripts.data_sources import (
+        lidar_dem,
+        prism_temperature,
+        nlcd_impervious,
+        landsat_lst,
+        mesowest_wind,
+        nrel_wind,
+        road_emissions,
+        boundary_shapefiles,
+        noaa_stations,
+    )
+    from scripts import validate_data
+
+    # Handle data commands
+    if args.data_command == "download-all":
+        logger.info("Downloading all data sources...")
+        sources = [
+            ("LiDAR DEM", lidar_dem.download_lidar),
+            ("PRISM Temperature", prism_temperature.download_prism),
+            ("NLCD Imperviousness", nlcd_impervious.download_nlcd),
+            ("Landsat LST", landsat_lst.download_landsat),
+            ("MesoWest Wind", mesowest_wind.download_mesowest),
+            ("NREL Wind", nrel_wind.download_nrel_wind),
+            ("Road Networks", road_emissions.download_roads),
+            ("Boundaries", boundary_shapefiles.download_boundaries),
+            ("NOAA Stations", noaa_stations.download_noaa_stations),
+        ]
+
+        for source_name, download_func in sources:
+            try:
+                logger.info(f"\nDownloading {source_name}...")
+                download_func(args)
+                logger.info(f"✓ {source_name} completed")
+            except Exception as e:
+                logger.error(f"✗ {source_name} failed: {e}")
+                if not args.force_redownload:
+                    logger.warning("Continuing with other sources...")
+
+        logger.info("\nValidating all downloaded data...")
+        validate_data.validate_all(args)
+
+    elif args.data_command == "lidar":
+        logger.info("Downloading LiDAR DEM...")
+        lidar_dem.download_lidar(args)
+
+    elif args.data_command == "prism":
+        logger.info("Downloading PRISM temperature normals...")
+        prism_temperature.download_prism(args)
+
+    elif args.data_command == "nlcd":
+        logger.info("Downloading NLCD imperviousness...")
+        nlcd_impervious.download_nlcd(args)
+
+    elif args.data_command == "landsat":
+        logger.info("Downloading Landsat 9 LST...")
+        landsat_lst.download_landsat(args)
+
+    elif args.data_command == "mesowest":
+        logger.info("Downloading MesoWest wind observations...")
+        mesowest_wind.download_mesowest(args)
+
+    elif args.data_command == "nrel-wind":
+        logger.info("Downloading NREL wind resource...")
+        nrel_wind.download_nrel_wind(args)
+
+    elif args.data_command == "roads":
+        logger.info("Downloading road networks...")
+        road_emissions.download_roads(args)
+
+    elif args.data_command == "boundaries":
+        logger.info("Downloading boundary shapefiles...")
+        boundary_shapefiles.download_boundaries(args)
+
+    elif args.data_command == "noaa-stations":
+        logger.info("Downloading NOAA station metadata...")
+        noaa_stations.download_noaa_stations(args)
+
+    elif args.data_command == "validate":
+        logger.info("Validating all downloaded data...")
+        validate_data.validate_all(args)
+
+    else:
+        logger.error(f"Unknown data command: {args.data_command}")
+        exit(1)
 
 
 if __name__ == "__main__":

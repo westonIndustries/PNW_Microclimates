@@ -1,0 +1,147 @@
+================================================================================
+                    MICROCLIMATE ENGINE CLI STRUCTURE
+================================================================================
+
+MAIN ENTRY POINT:
+    python -m src.pipeline
+
+================================================================================
+COMMAND 1: RUN (Pipeline Execution)
+================================================================================
+
+    python -m src.pipeline run [OPTIONS]
+
+    REQUIRED:
+        --region REGION_NAME              Region name (e.g., region_1)
+
+    MODE SELECTION:
+        --mode {normals|daily|hourly|both|realtime}
+                                          Operating mode (default: normals)
+
+    DATE RANGE (for daily/hourly modes):
+        --start-date YYYY-MM-DD           Start date
+        --end-date YYYY-MM-DD             End date
+        --month YYYY-MM                   Month shorthand
+
+    OPTIONAL:
+        --weather-year YEAR               Year for weather adjustment
+        --hrrr-source {s3|gcs}            HRRR data source (default: s3)
+        --output-format {parquet|csv|both}
+                                          Output format (default: parquet)
+        --safety-cube                     Build aviation safety cube
+        --cube-altitudes ALT1 ALT2 ...    Override altitude levels
+        --all-regions                     Run for all regions
+        --dry-run                         Print steps without executing
+        --verbose                         Enable verbose logging
+
+    EXAMPLES:
+        python -m src.pipeline run --region region_1 --mode normals
+        python -m src.pipeline run --region region_1 --mode daily --month 2024-01
+        python -m src.pipeline run --region region_1 --mode both --start-date 2024-01-01 --end-date 2024-01-31
+        python -m src.pipeline run --mode normals --all-regions --verbose
+
+================================================================================
+COMMAND 2: DATA (Data Acquisition)
+================================================================================
+
+    python -m src.pipeline data SUBCOMMAND [OPTIONS]
+
+    GLOBAL OPTIONS:
+        --region REGION_NAME              Region name (default: region_1)
+        --output-dir PATH                 Output directory (default: data)
+        --force-redownload                Force re-download
+        --dry-run                         Print steps without executing
+        --verbose                         Enable verbose logging
+
+    SUBCOMMANDS:
+
+        download-all                      Download all data sources
+            python -m src.pipeline data download-all --region region_1
+
+        lidar                             Download LiDAR DEM
+            python -m src.pipeline data lidar --region region_1
+
+        prism                             Download PRISM temperature
+            python -m src.pipeline data prism --output-dir /custom/path
+
+        nlcd                              Download NLCD imperviousness
+            python -m src.pipeline data nlcd
+
+        landsat                           Download Landsat 9 LST
+            python -m src.pipeline data landsat --region region_1
+
+        mesowest                          Download MesoWest wind
+            python -m src.pipeline data mesowest
+
+        nrel-wind                         Download NREL wind resource
+            python -m src.pipeline data nrel-wind --region region_1
+
+        roads                             Download road networks
+            python -m src.pipeline data roads
+
+        boundaries                        Download boundaries
+            python -m src.pipeline data boundaries
+
+        noaa-stations                     Download NOAA stations
+            python -m src.pipeline data noaa-stations --region region_1
+
+        validate                          Validate all downloaded data
+            python -m src.pipeline data validate
+
+    EXAMPLES:
+        python -m src.pipeline data download-all --region region_1
+        python -m src.pipeline data lidar --region region_1 --force-redownload
+        python -m src.pipeline data validate
+        python -m src.pipeline data download-all --all-regions
+
+================================================================================
+HELP COMMANDS
+================================================================================
+
+    python -m src.pipeline --help              Main help
+    python -m src.pipeline run --help          Run command help
+    python -m src.pipeline data --help         Data command help
+
+================================================================================
+COMMON WORKFLOWS
+================================================================================
+
+1. COMPLETE WORKFLOW:
+    python -m src.pipeline data download-all --region region_1
+    python -m src.pipeline data validate
+    python -m src.pipeline run --region region_1 --mode normals
+    python -m src.pipeline run --region region_1 --mode daily --month 2024-01
+
+2. BATCH PROCESSING:
+    python -m src.pipeline data download-all --all-regions
+    python -m src.pipeline run --mode normals --all-regions
+
+3. DEVELOPMENT:
+    python -m src.pipeline run --region region_1 --mode normals --dry-run
+    python -m src.pipeline run --region region_1 --mode normals --verbose
+
+4. SPECIFIC DATA SOURCE:
+    python -m src.pipeline data lidar --region region_1
+    python -m src.pipeline data prism --output-dir /custom/path
+    python -m src.pipeline data validate
+
+================================================================================
+OUTPUT LOCATIONS
+================================================================================
+
+    Normals mode:   output/runs/region_1__normal__TIMESTAMP/
+    Daily mode:     output/microclimate/daily_region_1_*.parquet
+    Hourly mode:    output/microclimate/hourly_region_1_*.parquet
+    Data files:     data/ directory
+
+================================================================================
+DOCUMENTATION
+================================================================================
+
+    CLI_GUIDE.md                - Complete command reference
+    QUICK_START.md              - Quick reference for common commands
+    MIGRATION_GUIDE.md          - Upgrading from old CLI
+    RUNTIME_UPDATE_SUMMARY.md   - Technical summary
+    data/DATA_SOURCES.md        - Data source information
+
+================================================================================

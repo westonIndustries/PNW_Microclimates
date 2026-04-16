@@ -197,3 +197,26 @@ Persistent daemon that polls for new HRRR cycles and produces safety cubes withi
 - [x] 17.3 Support `--all-regions` flag for batch processing across all regions in the registry
 - [x] 17.4 Log progress and timing per step; write logs to stdout and run output folder
 - [x] 17.5 Implement `publish_run_folder` — assemble self-contained output folder with all GeoJSONs, maps, CSVs, Parquets, QA reports, and `run_manifest.json`
+
+---
+
+# Part G: Data Acquisition Scripts
+
+Standalone Python programs to download and prepare input data files from public sources.
+
+## Task 18: Data Acquisition Framework
+
+- [x] 18.1 Create `scripts/download_data.py` — main CLI entry point with subcommands for each data source; supports `--region`, `--source-dir`, `--force-redownload`, `--dry-run` flags; logs progress and validates checksums
+- [x] 18.2 Create `scripts/data_sources/lidar_dem.py` — download 1 m LiDAR DEM from DOGAMI (Oregon) or WA DNR (Washington) via OpenTopography or direct API; support `--region`, `--bbox`, `--output-dir`; validate GeoTIFF format and CRS (EPSG:26910)
+- [x] 18.3 Create `scripts/data_sources/prism_temperature.py` — download 12 monthly PRISM temperature normals (800 m) from PRISM Climate Group; support `--period` (e.g., "1991-2020"), `--output-dir`; validate BIL/GeoTIFF format and grid alignment
+- [x] 18.4 Create `scripts/data_sources/nlcd_impervious.py` — download NLCD 2021 imperviousness (30 m) from USGS; support `--year`, `--output-dir`; validate GeoTIFF format and reproject to target CRS if needed
+- [x] 18.5 Create `scripts/data_sources/landsat_lst.py` — query Microsoft Planetary Computer STAC for Landsat 9 Collection 2 Level-2 LST scenes; support `--region`, `--date-range`, `--cloud-cover-max`, `--output-dir`; download and validate GeoTIFF
+- [x] 18.6 Create `scripts/data_sources/mesowest_wind.py` — download MesoWest station wind observations via SynopticLabs API; support `--stations`, `--date-range`, `--output-dir`; aggregate to annual mean and p90 per station; output CSV
+- [x] 18.7 Create `scripts/data_sources/nrel_wind.py` — download NREL wind resource map (80 m hub height, 2 km) from NREL; support `--region`, `--output-dir`; validate GeoTIFF format
+- [x] 18.8 Create `scripts/data_sources/road_emissions.py` — download ODOT and WSDOT road network shapefiles with AADT; support `--state` (OR/WA), `--output-dir`; validate shapefile format and AADT column
+- [x] 18.9 Create `scripts/data_sources/boundary_shapefiles.py` — download Census TIGER/Line state boundary and ZIP code boundary shapefiles; support `--states`, `--output-dir`, `--source-dir` (for pre-downloaded files); validate shapefile format
+- [x] 18.10 Create `scripts/data_sources/noaa_stations.py` — download NOAA station metadata (coordinates, elevation, HDD normals) from NOAA; support `--region`, `--output-dir`; output CSV with station ICAO, lat/lon, elevation, annual HDD
+- [x] 18.11 Create `scripts/validate_data.py` — comprehensive validation script that checks all downloaded files for: correct format (GeoTIFF, shapefile, CSV), correct CRS (EPSG:26910 for rasters), correct spatial extent (within OR/WA bounds), no missing values in critical columns, file size within expected range; output validation report
+- [x] 18.12 Create `data/DATA_SOURCES.md` — document all data sources, download URLs, licensing, expected file paths, and instructions for running the download scripts
+- [x] 18.13 Create `requirements-data.txt` — additional Python dependencies for data acquisition (e.g., `rasterio`, `geopandas`, `pystac-client`, `requests`, `synoptic`)
+- [x] 18.14 Add `--download-all` flag to `scripts/download_data.py` that runs all data source scripts in sequence with proper error handling and progress reporting

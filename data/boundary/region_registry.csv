@@ -1,1 +1,3 @@
 zip_code,state,region_code,region_name,base_station,lidar_vintage
+97201,OR,R1,region_1,KPDX,2021
+97202,OR,R1,region_1,KVUO,2021
