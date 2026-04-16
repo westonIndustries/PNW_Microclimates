@@ -80,7 +80,7 @@ Uses PRISM 30-year climate normals as the atmospheric base. Produces annual `eff
 
 ## Task 10: Monthly — Maps and Visualization
 
-- [ ] 10.1 Implement `src/output/write_maps.py` — create multiple interactive Leaflet HTML maps showing **cells** (not just ZIP codes):
+- [x] 10.1 Implement `src/output/write_maps.py` — create multiple interactive Leaflet HTML maps showing **cells** (not just ZIP codes):
   - **Cell-level effective HDD choropleth**: Each cell colored by `effective_hdd` value with ZIP code overlay
   - **Terrain position layer**: Cells colored by terrain type (windward, leeward, valley, ridge)
   - **UHI effect layer**: Cells colored by `uhi_offset_f`
@@ -89,10 +89,10 @@ Uses PRISM 30-year climate normals as the atmospheric base. Produces annual `eff
   - **Layer control panel**: Toggle between layers and show/hide boundaries
   - **Cell info popup**: Click any cell to see `cell_id`, `effective_hdd`, terrain, elevation, wind, imperviousness, etc.
   - **Zoom and pan**: Explore neighborhoods at high detail
-- [ ] 10.2 Write maps to `output/microclimate/`: `map_effective_hdd.html`, `map_terrain_position.html`, `map_uhi_effect.html`, `map_wind_infiltration.html`, `map_traffic_heat.html`
-- [ ] 10.3 Property test: all cell `effective_hdd` values in output CSV within 2,000–8,000
-- [ ] 10.4 Property test: directional sanity — urban cells < rural cells, windward > leeward
-- [ ] 10.5 Property test: ZIP-code aggregate equals mean of all cells (within floating-point tolerance)
+- [x] 10.2 Write maps to `output/microclimate/`: `map_effective_hdd.html`, `map_terrain_position.html`, `map_uhi_effect.html`, `map_wind_infiltration.html`, `map_traffic_heat.html`
+- [x] 10.3 Property test: all cell `effective_hdd` values in output CSV within 2,000–8,000
+- [x] 10.4 Property test: directional sanity — urban cells < rural cells, windward > leeward
+- [x] 10.5 Property test: ZIP-code aggregate equals mean of all cells (within floating-point tolerance)
 
 ## Task 11: Monthly — Future Enhancements (Optional)
 
